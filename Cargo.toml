@@ -28,7 +28,7 @@ embassy-embedded-hal = { version = "0.3.0", features = ["defmt"] }
 
 [profile.release]
 codegen-units = 1
-debug = 0
+debug = 2
 debug-assertions = false
 incremental = false
 lto = 'fat'
