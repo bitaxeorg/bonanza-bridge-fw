@@ -120,8 +120,10 @@ async fn main(spawner: Spawner) {
     };
 
     let gpio_pins = control::gpio::Pins {
-        asic_resetn: gpio::Output::new(p.PIN_11, gpio::Level::High),
-        asic_pwr_en: gpio::Output::new(p.PIN_0, gpio::Level::Low),
+        pwr_en: gpio::Output::new(p.PIN_19, gpio::Level::Low),
+        v5_en: gpio::Output::new(p.PIN_18, gpio::Level::Low),
+        asic_rst: gpio::Output::new(p.PIN_11, gpio::Level::High),
+        asic_trip: gpio::Input::new(p.PIN_10, gpio::Pull::None),
     };
 
     let adc = adc::Adc::new(p.ADC, Irqs, Default::default());

@@ -106,26 +106,33 @@ Example:
 
 Commands:
 
-- Pin Number
+- pwr_en: 0x00
+- 5v_en: 0x01
+- asic_rst: 0x02
+- asic_trip (read-only): 0x03
 
 Data:
 
-- [pin level]
+- [pin level] (omit for read operations)
 
-Example
+Example:
 
-- Set pin 1 Low: `07 00 00 00 06 01 00`
+- Set pwr_en High: `07 00 00 00 06 00 01`
+- Get asic_rst: `06 00 00 00 06 02`
+- Get asic_trip: `06 00 00 00 06 03`
 
 **ADC**
 
 Commands:
 
-- read VDD: 0x50
-- read VIN: 0x51
+- read domain1: 0x50
+- read domain2: 0x51
+- read domain3: 0x52
 
 Example:
 
-- read VDD Pin: `06 00 00 00 07 50`
+- read domain1: `06 00 00 00 07 50`
+- read domain2: `06 00 00 00 07 51`
 
 **LED**
 

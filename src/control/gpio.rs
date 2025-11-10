@@ -2,31 +2,44 @@ use super::CommandError;
 use heapless::Vec;
 
 pub struct Pins<'d> {
-    pub asic_resetn: embassy_rp::gpio::Output<'d>,
-    pub asic_pwr_en: embassy_rp::gpio::Output<'d>,
+    pub pwr_en: embassy_rp::gpio::Output<'d>,
+    pub v5_en: embassy_rp::gpio::Output<'d>,
+    pub asic_rst: embassy_rp::gpio::Output<'d>,
+    pub asic_trip: embassy_rp::gpio::Input<'d>,
 }
 
 #[derive(defmt::Format)]
 pub enum Command {
-    SetAsicResetn { level: bool },
-    GetAsicResetn,
+    SetPwrEn { level: bool },
+    GetPwrEn,
 
-    SetAsicPowerEnable { level: bool },
-    GetAsicPowerEnable,
+    Set5vEn { level: bool },
+    Get5vEn,
+
+    SetAsicRst { level: bool },
+    GetAsicRst,
+
+    GetAsicTrip,
 }
 
 impl Command {
     pub fn from_bytes(buf: &[u8]) -> Result<Self, CommandError> {
         defmt::println!("GETTING GPIO COMMAND FROM BYTES {:x}", buf);
         match buf {
-            // Get ASIC Reset (Active Low)
-            [0x00] => Ok(Self::GetAsicResetn),
-            // Set ASIC Reset (Active Low)
-            [0x00, level] => Ok(Self::SetAsicResetn { level: *level > 0 }),
-            // Get ASIC Power Enable (Active High)
-            [0x01] => Ok(Self::GetAsicPowerEnable),
-            // Set ASIC Power EN (Active High)
-            [0x01, level] => Ok(Self::SetAsicPowerEnable { level: *level > 0 }),
+            // Get Power Enable
+            [0x00] => Ok(Self::GetPwrEn),
+            // Set Power Enable
+            [0x00, level] => Ok(Self::SetPwrEn { level: *level > 0 }),
+            // Get 5V Enable
+            [0x01] => Ok(Self::Get5vEn),
+            // Set 5V Enable
+            [0x01, level] => Ok(Self::Set5vEn { level: *level > 0 }),
+            // Get ASIC Reset
+            [0x02] => Ok(Self::GetAsicRst),
+            // Set ASIC Reset
+            [0x02, level] => Ok(Self::SetAsicRst { level: *level > 0 }),
+            // Get ASIC Trip
+            [0x03] => Ok(Self::GetAsicTrip),
             _ => Err(CommandError::Invalid),
         }
     }
@@ -35,16 +48,22 @@ impl Command {
 impl super::ControllerCommand for Command {
     async fn handle(&self, controller: &mut super::Controller) -> Result<Vec<u8, 256>, CommandError> {
         let level = match self {
-            Command::GetAsicResetn => bool::from(controller.gpio.asic_resetn.get_output_level()),
-            Command::SetAsicResetn { level } => {
-                controller.gpio.asic_resetn.set_level((*level).into());
+            Command::GetPwrEn => bool::from(controller.gpio.pwr_en.get_output_level()),
+            Command::SetPwrEn { level } => {
+                controller.gpio.pwr_en.set_level((*level).into());
                 *level
             }
-            Command::GetAsicPowerEnable => bool::from(controller.gpio.asic_pwr_en.get_output_level()),
-            Command::SetAsicPowerEnable { level } => {
-                controller.gpio.asic_pwr_en.set_level((*level).into());
+            Command::Get5vEn => bool::from(controller.gpio.v5_en.get_output_level()),
+            Command::Set5vEn { level } => {
+                controller.gpio.v5_en.set_level((*level).into());
                 *level
             }
+            Command::GetAsicRst => bool::from(controller.gpio.asic_rst.get_output_level()),
+            Command::SetAsicRst { level } => {
+                controller.gpio.asic_rst.set_level((*level).into());
+                *level
+            }
+            Command::GetAsicTrip => controller.gpio.asic_trip.is_high(),
         };
 
         Ok(Vec::from_slice(&[level as u8]).unwrap())
