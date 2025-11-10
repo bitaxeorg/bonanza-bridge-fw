@@ -127,8 +127,9 @@ async fn main(spawner: Spawner) {
     let adc = adc::Adc::new(p.ADC, Irqs, Default::default());
     let adc_pins = control::adc::Pins {
         adc,
-        vdd: adc::Channel::new_pin(p.PIN_26, gpio::Pull::None),
-        vin: adc::Channel::new_pin(p.PIN_27, gpio::Pull::None),
+        domain1: adc::Channel::new_pin(p.PIN_26, gpio::Pull::None),
+        domain2: adc::Channel::new_pin(p.PIN_27, gpio::Pull::None),
+        domain3: adc::Channel::new_pin(p.PIN_28, gpio::Pull::None),
     };
 
     let pio::Pio { mut common, sm0, .. } = pio::Pio::new(p.PIO0, Irqs);
