@@ -1,7 +1,8 @@
 use defmt::info;
 
 use embassy_futures::join::join;
-use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
+use embassy_rp::usb;
+use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel::Channel};
 use embassy_time::{Duration, TimeoutError};
 use embassy_usb::{
     class::cdc_acm::{CdcAcmClass, Receiver, Sender},
@@ -18,8 +19,9 @@ const GPIO_COMMAND: u8 = 6;
 pub mod adc;
 const ADC_COMMAND: u8 = 7;
 
-// pub mod led;
-// const LED_COMMAND: u8 = 8;
+pub mod led;
+const LED_COMMAND: u8 = 8;
+
 
 #[derive(defmt::Format)]
 struct Command {
@@ -33,6 +35,7 @@ enum CommandInner {
     I2c(i2c::Command),
     Gpio(gpio::Command),
     Adc(adc::Command),
+    Led(led::Command),
     Error(CommandError),
 }
 
@@ -54,6 +57,11 @@ impl Command {
                 id,
                 bus: buf[1],
                 inner: CommandInner::Adc(adc::Command::from_bytes(&buf[3..])?),
+            }),
+            LED_COMMAND => Ok(Self {
+                id,
+                bus: buf[1],
+                inner: CommandInner::Led(led::Command::from_bytes(&buf[3..])?),
             }),
             _ => Err(CommandError::Invalid),
         }
@@ -95,13 +103,14 @@ impl CommandError {
     }
 }
 
-static COMMAND_CHANNEL: Channel<CriticalSectionRawMutex, Command, 8> = Channel::new();
+static COMMAND_CHANNEL: Channel<ThreadModeRawMutex, Command, 8> = Channel::new();
 
 pub struct Controller {
     tx: Sender<'static, super::UsbDriver>,
     i2c: super::I2cDriver,
     gpio: gpio::Pins<'static>,
     adc: adc::Pins<'static>,
+    led: led::Led<'static>,
 }
 
 pub trait ControllerCommand {
@@ -116,6 +125,7 @@ impl Controller {
                 CommandInner::I2c(cmd) => cmd.handle(self).await,
                 CommandInner::Gpio(cmd) => cmd.handle(self).await,
                 CommandInner::Adc(cmd) => cmd.handle(self).await,
+                CommandInner::Led(cmd) => cmd.handle(self).await,
                 CommandInner::Error(err) => Err(err),
             };
 
@@ -140,9 +150,9 @@ impl Controller {
 }
 
 #[embassy_executor::task]
-pub async fn usb_task(class: CdcAcmClass<'static, super::UsbDriver>, i2c: super::I2cDriver, gpio: gpio::Pins<'static>, adc: adc::Pins<'static>) -> ! {
+pub async fn usb_task(class: CdcAcmClass<'static, super::UsbDriver>, i2c: super::I2cDriver, gpio: gpio::Pins<'static>, adc: adc::Pins<'static>, led: led::Led<'static>) -> ! {
     let (tx, mut rx, mut _ctrl) = class.split_with_control();
-    let mut controller = Controller { tx, i2c, gpio, adc };
+    let mut controller = Controller { tx, i2c, gpio, adc, led };
 
     loop {
         rx.wait_connection().await;
@@ -165,7 +175,7 @@ impl From<EndpointError> for ControlTaskError {
     }
 }
 
-async fn pipe_usb_read(rx: &mut Receiver<'static, super::UsbDriver>) -> Result<(), ControlTaskError> {
+async fn pipe_usb_read<'d, T: usb::Instance + 'd>(rx: &mut Receiver<'d, usb::Driver<'d, T>>) -> Result<(), ControlTaskError> {
     let mut buf = [0; 4098];
 
     loop {

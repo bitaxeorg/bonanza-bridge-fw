@@ -18,7 +18,7 @@ enabled = true
 halt_afterwards = false
 
 [default.general]
-chip = "esp32s3"
+chip = "RP2040"
 log_level = "WARN"
 # RP2040 does not support connect_under_reset
 connect_under_reset = false

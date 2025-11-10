@@ -1,19 +1,20 @@
+
 pub enum UartTaskError {
     Disconnected,
     UartError,
 }
 
-use embassy_embedded_hal::SetConfig;
+use super::AsicUart;
 use embassy_futures::select::{select3, Either3};
+use embassy_rp::{
+    uart::BufferedUart,
+    usb::{self},
+};
 use embassy_usb::{
     class::cdc_acm::{CdcAcmClass, ControlChanged, Receiver, Sender},
     driver::EndpointError,
 };
-use embedded_io_async::Write;
-use esp_hal::{
-    uart::{Config, ConfigError, RxError, TxError, Uart, UartRx, UartTx},
-    Async,
-};
+use embedded_io_async::{Read, Write};
 
 impl From<EndpointError> for UartTaskError {
     fn from(val: EndpointError) -> Self {
@@ -24,24 +25,8 @@ impl From<EndpointError> for UartTaskError {
     }
 }
 
-impl From<TxError> for UartTaskError {
-    fn from(val: TxError) -> Self {
-        match val {
-            _ => UartTaskError::UartError,
-        }
-    }
-}
-
-impl From<RxError> for UartTaskError {
-    fn from(val: RxError) -> Self {
-        match val {
-            _ => UartTaskError::UartError,
-        }
-    }
-}
-
-impl From<ConfigError> for UartTaskError {
-    fn from(val: ConfigError) -> Self {
+impl From<embassy_rp::uart::Error> for UartTaskError {
+    fn from(val: embassy_rp::uart::Error) -> Self {
         match val {
             _ => UartTaskError::UartError,
         }
@@ -49,31 +34,24 @@ impl From<ConfigError> for UartTaskError {
 }
 
 #[embassy_executor::task]
-pub async fn usb_task(class: CdcAcmClass<'static, super::UsbDriver>, uart: Uart<'static, Async>) -> ! {
+pub async fn usb_task(class: CdcAcmClass<'static, super::UsbDriver>, mut uart: BufferedUart<'static, AsicUart>) -> ! {
     let (mut tx, mut rx, mut ctrl) = class.split_with_control();
-
-    let (mut uart_rx, mut uart_tx) = uart.split();
 
     loop {
         rx.wait_connection().await;
-        let _ = pipe_uart(&mut tx, &mut rx, &mut ctrl, &mut uart_rx, &mut uart_tx).await;
+        let _ = pipe_uart(&mut tx, &mut rx, &mut ctrl, &mut uart).await;
     }
 }
 
 /// Handle ASIC UART <-> BMC USB TTY forwarding and baudrate changes
-pub async fn pipe_uart<'d>(
-    usb_tx: &mut Sender<'static, super::UsbDriver>,
-    usb_rx: &mut Receiver<'static, super::UsbDriver>,
-    ctrl: &mut ControlChanged<'static>,
-    uart_rx: &mut UartRx<'d, Async>,
-    uart_tx: &mut UartTx<'d, Async>,
-) -> Result<(), UartTaskError> {
+pub async fn pipe_uart<'d, T: usb::Instance + 'd>(usb_tx: &mut Sender<'d, usb::Driver<'d, T>>, usb_rx: &mut Receiver<'d, usb::Driver<'d, T>>, ctrl: &mut ControlChanged<'d>, uart: &mut BufferedUart<'d, AsicUart>) -> Result<(), UartTaskError> {
     let mut usb_buf = [0; 64];
     let mut uart_buf = [0; 1024];
 
     loop {
+        let (uart_tx, uart_rx) = uart.split_ref();
         let usb_read = usb_rx.read_packet(&mut usb_buf);
-        let uart_read = uart_rx.read_async(&mut uart_buf);
+        let uart_read = uart_rx.read(&mut uart_buf);
 
         let control_change = ctrl.control_changed();
 
@@ -92,9 +70,7 @@ pub async fn pipe_uart<'d>(
             Either3::Third(()) => {
                 let line_coding = usb_rx.line_coding();
                 let baudrate = line_coding.data_rate();
-                let config = Config::default().with_baudrate(baudrate);
-                uart_tx.set_config(&config)?;
-                uart_rx.set_config(&config)?;
+                uart.set_baudrate(baudrate);
             }
         }
     }

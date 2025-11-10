@@ -1,55 +1,72 @@
 #![no_std]
 #![no_main]
-#![feature(trivial_bounds)]
 
 use defmt::unwrap;
-use panic_rtt_target as _;
+use defmt_rtt as _;
+use panic_probe as _;
 
 use embassy_executor::Spawner;
+use embassy_rp::{
+    adc::{self},
+    bind_interrupts,
+    flash::{self},
+    gpio::{self},
+    i2c::{self},
+    peripherals::{PIO0, UART1, USB},
+    pio::{self},
+    usb::{self},
+    Peripheral,
+};
+use embassy_time::Timer;
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
-use esp_hal::{analog::adc, clock::CpuClock, gpio, i2c, timer::systimer::SystemTimer};
 use static_cell::StaticCell;
 
 mod control;
 mod uart;
 
-pub type AsicUart = esp_hal::peripherals::UART1;
-pub type I2cDriver = i2c::master::I2c<'static, esp_hal::Async>;
-pub type UsbDriver = esp_hal::otg_fs::asynch::Driver<'static>;
+pub type AsicUart = UART1;
+pub type I2cPeripheral = embassy_rp::peripherals::I2C1;
+pub type I2cDriver = i2c::I2c<'static, I2cPeripheral, i2c::Async>;
+pub type UsbPeripheral = embassy_rp::peripherals::USB;
+pub type UsbDriver = usb::Driver<'static, UsbPeripheral>;
 pub type UsbDevice = embassy_usb::UsbDevice<'static, UsbDriver>;
 
+bind_interrupts!(struct Irqs {
+    USBCTRL_IRQ => usb::InterruptHandler<USB>;
+    UART1_IRQ => embassy_rp::uart::BufferedInterruptHandler<UART1>;
+    I2C1_IRQ => i2c::InterruptHandler<embassy_rp::peripherals::I2C1>;
+    ADC_IRQ_FIFO => embassy_rp::adc::InterruptHandler;
+    PIO0_IRQ_0 => embassy_rp::pio::InterruptHandler<PIO0>;
+});
+
+const FLASH_SIZE: usize = 4 * 1024 * 1024;
 const VERSION: u16 = 0x0001;
 
-static MANUFACTURER: &str = "OSMU";
-static PRODUCT: &str = "Bitaxe";
+static MANUFACTURER: &str = "256F";
+static PRODUCT: &str = "EmberOne00";
 
-/// Return a unique serial number for this device by hashing its MAC address
+/// Return a unique serial number for this device by hashing its flash JEDEC ID.
 fn serial_number() -> &'static str {
-    let mac_address = esp_hal::efuse::Efuse::mac_address();
+    let p = unsafe { embassy_rp::Peripherals::steal() };
+    let flash = unsafe { p.FLASH.clone_unchecked() };
+    let mut flash = flash::Flash::<_, flash::Async, FLASH_SIZE>::new(flash, p.DMA_CH0);
     static SERIAL_NUMBER_BUF: StaticCell<[u8; 8]> = StaticCell::new();
-    let sn = const_murmur3::murmur3_32(&mac_address, 0);
+    let jedec_id = flash.blocking_jedec_id().unwrap();
+    let sn = const_murmur3::murmur3_32(&jedec_id.to_le_bytes(), 0);
     let buf = SERIAL_NUMBER_BUF.init([0; 8]);
     hex::encode_to_slice(sn.to_le_bytes(), &mut buf[..]).unwrap();
     unsafe { core::str::from_utf8_unchecked(buf) }
 }
 
-static USB_EP_OUT_BUFFER: StaticCell<[u8; 1024]> = StaticCell::new();
-
-#[esp_hal_embassy::main]
+#[embassy_executor::main]
 async fn main(spawner: Spawner) {
-    rtt_target::rtt_init_defmt!();
+    let p = embassy_rp::init(Default::default());
 
-    let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
-    let p = esp_hal::init(config);
+    let mut watchdog = embassy_rp::watchdog::Watchdog::new(p.WATCHDOG);
+    watchdog.set_scratch(0, 0);
+    watchdog.feed();
 
-    let timer0 = SystemTimer::new(p.SYSTIMER);
-    esp_hal_embassy::init(timer0.alarm0);
-
-    let usb = esp_hal::otg_fs::Usb::new(p.USB0, p.GPIO20, p.GPIO19);
-    let usb_config = esp_hal::otg_fs::asynch::Config::default();
-    let usb_driver = UsbDriver::new(usb, USB_EP_OUT_BUFFER.init([0u8; 1024]), usb_config);
-
-    //esp_alloc::heap_allocator!(size: 72 * 1024);
+    let usb_driver = usb::Driver::new(p.USB, Irqs);
 
     let usb_config = {
         let mut config = embassy_usb::Config::new(0xc0de, 0xcafe);
@@ -87,29 +104,44 @@ async fn main(spawner: Spawner) {
     };
 
     let asic_uart = {
-        let config = esp_hal::uart::Config::default().with_baudrate(115200).with_rx(esp_hal::uart::RxConfig::default().with_fifo_full_threshold(64));
-        esp_hal::uart::Uart::new(p.UART1, config).unwrap().with_rx(p.GPIO18).with_tx(p.GPIO17).into_async()
+        let (tx_pin, rx_pin, uart) = (p.PIN_8, p.PIN_9, p.UART1);
+        static UART_TX_BUF: StaticCell<[u8; 64]> = StaticCell::new();
+        let tx_buf = &mut UART_TX_BUF.init([0; 64])[..];
+        static UART_RX_BUF: StaticCell<[u8; 64]> = StaticCell::new();
+        let rx_buf = &mut UART_RX_BUF.init([0; 64])[..];
+
+        embassy_rp::uart::BufferedUart::new(uart, Irqs, tx_pin, rx_pin, tx_buf, rx_buf, Default::default())
     };
 
     let i2c = {
-        let config = esp_hal::i2c::master::Config::default();
-        let sda = p.GPIO47;
-        let scl = p.GPIO48;
-        i2c::master::I2c::new(p.I2C0, config).unwrap().with_sda(sda).with_scl(scl).into_async()
+        let sda = p.PIN_14;
+        let scl = p.PIN_15;
+        embassy_rp::i2c::I2c::new_async(p.I2C1, scl, sda, Irqs, Default::default())
     };
 
     let gpio_pins = control::gpio::Pins {
-        asic_resetn: gpio::Output::new(p.GPIO1, gpio::Level::Low, gpio::OutputConfig::default()),
+        asic_resetn: gpio::Output::new(p.PIN_11, gpio::Level::High),
+        asic_pwr_en: gpio::Output::new(p.PIN_0, gpio::Level::Low),
     };
 
-    let mut adc_config = adc::AdcConfig::default();
-    let vdd = adc_config.enable_pin(p.GPIO2, adc::Attenuation::_11dB);
-    let adc = adc::Adc::new(p.ADC1, Default::default());
-    let adc_pins = control::adc::Pins { adc, vdd: vdd };
+    let adc = adc::Adc::new(p.ADC, Irqs, Default::default());
+    let adc_pins = control::adc::Pins {
+        adc,
+        vdd: adc::Channel::new_pin(p.PIN_26, gpio::Pull::None),
+        vin: adc::Channel::new_pin(p.PIN_27, gpio::Pull::None),
+    };
+
+    let pio::Pio { mut common, sm0, .. } = pio::Pio::new(p.PIO0, Irqs);
+    let led = control::led::Led::new(&mut common, sm0, p.PIN_1, p.DMA_CH0.into());
 
     unwrap!(spawner.spawn(usb_task(builder.build())));
-    unwrap!(spawner.spawn(control::usb_task(control_class, i2c, gpio_pins, adc_pins)));
+    unwrap!(spawner.spawn(control::usb_task(control_class, i2c, gpio_pins, adc_pins, led)));
     unwrap!(spawner.spawn(uart::usb_task(asic_uart_class, asic_uart)));
+
+    loop {
+        watchdog.feed();
+        Timer::after_secs(2).await;
+    }
 }
 
 #[embassy_executor::task]

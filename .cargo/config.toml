@@ -1,12 +1,8 @@
-[target.'cfg(target_arch = "xtensa")']
-runner = "probe-rs run --chip=esp32s3 --always-print-stacktrace --no-location --catch-hardfault"
-#runner = "espflash flash --monitor"
+[target.'cfg(all(target_arch = "arm", target_os = "none"))']
+runner = "probe-rs run --chip RP2040"
 
 [build]
-target = "xtensa-esp32s3-none-elf"
-
-[unstable]
-build-std = ["core", "alloc"]
+target = "thumbv6m-none-eabi"
 
 [env]
 DEFMT_LOG = "debug"

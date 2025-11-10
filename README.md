@@ -1,49 +1,53 @@
-# bitaxe-raw usbserial Firmware
+# emberOne usbserial Firmware
 
-bitaxe-raw is firmware for the ESP32S3 on the bitaxe series boards. It will pass through ASIC UART, Board I2C, GPIO and ADC over usbserial. This can be used for research, testing and debugging.
+This repository contains RP2040 USB device-side firmware for the emberOne board
+management controller.
 
 ## Developing
 
 Install Rust:
 
-`curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
+```Shell
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
-### Install espup
+rustup target add thumbv6m-none-eabi
 
-`RUSTUP_TOOLCHAIN=stable cargo install espup --locked`
+cargo install probe-rs-tools --locked
+cargo install elf2uf2-rs --locked
+cargo install cargo-binutils
+```
 
-`espup install`
+For SWD-based development and debugging:
 
-Note: `espup install` doesn't seem to be working right now. If it gives you an error, try:
+```Shell
+# Build the latest firmware:
+cargo build --release
 
-instead install the binary from https://github.com/esp-rs/espup/releases make sure to get the right binary link for your system and replace the URL and run
+# Build, program, and attach to the device:
+cargo run --release
 
-`curl -L https://github.com/esp-rs/espup/releases/download/v0.15.1/espup-x86_64-apple-darwin -o espup`
+# Just flash the device, don't attach to RTT:
+cargo flash --release --chip RP2040
 
-`chmod a+x espup`
+# Erase all flash memory:
+probe-rs erase --chip RP2040 --allow-erase-all
+```
 
-`./espup install`
+For UF2-based development:
 
-### Install flashing tools
-`cargo install probe-rs-tools --locked`
-`cargo install cargo-binutils`
+```Shell
+# Build the latest firmware:
+cargo build --release
 
-For building and flashing over USB:
+# Convert the ELF to an RP2040-compatible UF2 image:
+elf2uf2-rs target/thumbv6m-none-eabi/release/firmware firmware.uf2
 
-`. $HOME/export-esp.sh`
-
-### Build the latest firmware:
-`cargo build --release`
-
-### Flash the device:
-`cargo flash --release --chip esp32s3`
-
-After programming bitaxe-raw to your Bitaxe, if you ever want to change the firmware again you'll need to put the ESP32 into the bootloader. This can be done by holding the `BOOT` button as you attach power.
+# Convert and deploy the UF2 image to an mounted RP2040:
+elf2uf2-rs -d target/thumbv6m-none-eabi/release/firmware
+```
 
 ## Running
-When connected, this usbserial firmware will create two serial ports. Usually the first serial port is "control serial" like I2C, GPIO, and ADC. The second serial port is "data serial" and is pass through UART.
-
-After startup, the ASIC is held in reset by GPIO RST_N in order to minimize heat and power until the host device is connected and ready to use the ASIC. Enable it by setting RST_N High via the control serial port.
+When connected the emberOne usbserial firmware will create two serial ports. Usually the first serial port is "control serial" like I2C, GPIO, ADC and LED. The second serial port is "data serial" and is pass through UART.
 
 ### Data Serial
 - Second serial port
@@ -73,6 +77,7 @@ After startup, the ASIC is held in reset by GPIO RST_N in order to minimize heat
 	- I2C:  0x05
 	- GPIO: 0x06
 	- ADC:  0x07
+	- LED:  0x08 
 5. command 
 	- varies by command page. See below
 6. data
@@ -101,7 +106,7 @@ Example:
 
 Commands:
 
-- RST_N: 0x00
+- Pin Number
 
 Data:
 
@@ -122,3 +127,16 @@ Example:
 
 - read VDD Pin: `06 00 00 00 07 50`
 
+**LED**
+
+Commands:
+
+- Set Color: 0x10
+
+Data:
+
+- [R, G, B]
+
+Example:
+
+- Set LED Magenta: `09 00 00 00 08 10 FF 00 FF`

@@ -1,5 +1,4 @@
 use embassy_embedded_hal::SetConfig;
-use esp_hal::time::Rate;
 use heapless::Vec;
 
 use super::CommandError;
@@ -37,12 +36,13 @@ impl super::ControllerCommand for Command {
     async fn handle(&self, controller: &mut super::Controller) -> Result<Vec<u8, 256>, CommandError> {
         match self {
             Command::SetFrequency { frequency } => {
-                let config = esp_hal::i2c::master::Config::default().with_frequency(Rate::from_hz(*frequency));
+                let mut config = embassy_rp::i2c::Config::default();
+                config.frequency = *frequency;
                 controller.i2c.set_config(&config).map_err(|_| CommandError::Message("I2C Set Frequency Error"))?;
                 Ok(Vec::from_slice(&frequency.to_le_bytes()).unwrap())
             }
             Command::Write { addr, buf } => {
-                controller.i2c.write_async(*addr, buf).await.map_err(|_| CommandError::Message("I2C Write Error"))?;
+                controller.i2c.write_async(*addr, buf.iter().copied()).await.map_err(|_| CommandError::Message("I2C Write Error"))?;
                 Ok(Vec::from_slice(&[buf.len() as u8]).unwrap())
             }
 
@@ -56,7 +56,11 @@ impl super::ControllerCommand for Command {
             Command::WriteRead { addr, buf, read_len } => {
                 let mut read_buf = Vec::new();
                 let _ = read_buf.resize_default(*read_len as usize);
-                controller.i2c.write_read_async(*addr, buf, &mut read_buf[0..*read_len as usize]).await.map_err(|_| CommandError::Message("I2C WriteRead Error"))?;
+                controller
+                    .i2c
+                    .write_read_async(*addr, buf.iter().copied(), &mut read_buf[0..*read_len as usize])
+                    .await
+                    .map_err(|_| CommandError::Message("I2C WriteRead Error"))?;
                 Ok(read_buf)
             }
         }
