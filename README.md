@@ -1,7 +1,8 @@
-# emberOne usbserial Firmware
+# bitaxe-raw usbserial firmware
 
-This repository contains RP2040 USB device-side firmware for the emberOne board
-management controller.
+bitaxe-raw is usbserial passthrough firmware for talking directly to ASICs and board peripherals over USB. This `pico` version supports the RP2040 (like in the RPi Pico dev board). The asic UART has been moved to PIO1 to support 9bit serial frames for the Intel BZM2 ASIC.
+
+This branch is targeting the [bitaxeBIRDS](https://github.com/bitaxeorg/bitaxebirds) BZM2 dev board.
 
 ## Developing
 
@@ -23,7 +24,7 @@ For SWD-based development and debugging:
 # Build the latest firmware:
 cargo build --release
 
-# Build, program, and attach to the device:
+# Build, program, and attach to the device with RTT for debugging:
 cargo run --release
 
 # Just flash the device, don't attach to RTT:
@@ -47,13 +48,13 @@ elf2uf2-rs -d target/thumbv6m-none-eabi/release/firmware
 ```
 
 ## Running
-When connected the emberOne usbserial firmware will create two serial ports. Usually the first serial port is "control serial" like I2C, GPIO, ADC and LED. The second serial port is "data serial" and is pass through UART.
+The usbserial firmware will create two serial ports. Usually the first serial port is "control serial" like I2C, GPIO, ADC and LED. The second serial port is "data serial" and is pass through UART.
 
 ### Data Serial
 - Second serial port
 - **9-bit serial (9N1)**: 9 data bits, no parity, 1 stop bit
 - All data is passed through bidirectionally
-- USB serial baudrate is mirrored to the 9-bit UART output
+- USB serial baudrate is mirrored to the 9-bit UART output. Baudrates up to 5Mbaud have been tested, and seem to work 🤞
 
 **9-bit Data Encoding over USB:**
 
