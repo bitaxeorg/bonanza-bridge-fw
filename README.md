@@ -51,8 +51,22 @@ When connected the emberOne usbserial firmware will create two serial ports. Usu
 
 ### Data Serial
 - Second serial port
-- All data is passed through, both directions.
-- usbserial baudrate is mirrored on the output.
+- **9-bit serial (9N1)**: 9 data bits, no parity, 1 stop bit
+- All data is passed through bidirectionally
+- USB serial baudrate is mirrored to the 9-bit UART output
+
+**9-bit Data Encoding over USB:**
+
+Data is sent/received as pairs of bytes:
+- **First byte**: Lower 8 bits of the 9-bit word (bits 0-7)
+- **Second byte**: Bit 8 (only LSB is used, can be 0 or 1)
+
+Examples:
+- To send `0x155` (binary: `1_01010101`): Send bytes `[0x55, 0x01]`
+- To send `0x0AA` (binary: `0_10101010`): Send bytes `[0xAA, 0x00]`
+- Received 9-bit data is sent to USB in the same format
+
+**Note:** The 9th bit can be used for addressing or protocol-specific purposes depending on your ASIC requirements.
 
 
 ### Control Serial
