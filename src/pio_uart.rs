@@ -34,15 +34,15 @@ impl<'d, PIO: Instance, const SM_TX: usize, const SM_RX: usize> PioUart<'d, PIO,
 
         // PIO program for 9-bit UART RX
         // Receives 1 start bit, 9 data bits, 1 stop bit
+        // Each bit period is 8 cycles
         let prg_rx = pio_proc::pio_asm!(
             ".wrap_target"
-            "wait 0 pin 0",          // Wait for start bit (low)
-            "set x, 8     [10]",     // Set bit counter to 8 (9 bits), delay to middle of start bit
+            "wait 0 pin 0",          // Wait for start bit (falling edge)
+            "set x, 8     [11]",     // Set bit counter to 8 (9 bits), delay 1.5 bit periods to center of first data bit
             "bitloop:",
             "in pins, 1   [6]",      // Sample and shift in 1 bit (7 cycles)
-            "jmp x-- bitloop",       // Loop (1 cycle) = 7+1 = 8 cycles per bit
-            "push",                  // Push received data to FIFO
-            ".wrap"
+            "jmp x-- bitloop",       // Loop (1 cycle) = 8 cycles per bit
+            ".wrap"                  // Remove manual push, use autopush instead
         );
 
         // Install TX program
@@ -73,9 +73,9 @@ impl<'d, PIO: Instance, const SM_TX: usize, const SM_RX: usize> PioUart<'d, PIO,
         let prg_rx_loaded = pio.load_program(&prg_rx.program);
         cfg_rx.use_program(&prg_rx_loaded, &[]);
         cfg_rx.set_in_pins(&[&rx_pin]);
-        cfg_rx.shift_in.direction = ShiftDirection::Right;
-        cfg_rx.shift_in.auto_fill = false;
-        cfg_rx.shift_in.threshold = 32;
+        cfg_rx.shift_in.direction = ShiftDirection::Right;  // Shift right (LSB first) like standard UART
+        cfg_rx.shift_in.auto_fill = true;   // Enable autopush
+        cfg_rx.shift_in.threshold = 9;      // Autopush after 9 bits
         cfg_rx.fifo_join = FifoJoin::RxOnly;
         cfg_rx.clock_divider = Self::calculate_clk_div(baudrate);
         
@@ -121,7 +121,7 @@ impl<'d, PIO: Instance, const SM_TX: usize, const SM_RX: usize> PioUart<'d, PIO,
     #[allow(dead_code)]
     pub async fn read_u16(&mut self) -> u16 {
         let data = self.sm_rx.rx().wait_pull().await;
-        (data & 0x1FF) as u16
+        ((data >> 23) & 0x1FF) as u16
     }
 
     /// Check if TX FIFO is full
@@ -150,7 +150,9 @@ impl<'d, PIO: Instance, const SM_TX: usize, const SM_RX: usize> PioUart<'d, PIO,
     /// Try to read a 9-bit value (non-blocking)
     pub fn try_read(&mut self) -> Option<u16> {
         if let Some(data) = self.sm_rx.rx().try_pull() {
-            Some((data & 0x1FF) as u16)
+            // With autopush threshold=9 and shift_right, autopush happens after 9 bits
+            // The bits end up in the upper 9 bits [31:23] of the 32-bit word
+            Some(((data >> 23) & 0x1FF) as u16)
         } else {
             None
         }
@@ -204,11 +206,11 @@ pub struct PioUartRx<'d, PIO: Instance, const SM: usize> {
 impl<'d, PIO: Instance, const SM: usize> PioUartRx<'d, PIO, SM> {
     pub async fn read_u16(&mut self) -> u16 {
         let data = self.sm.rx().wait_pull().await;
-        (data & 0x1FF) as u16
+        ((data >> 23) & 0x1FF) as u16
     }
 
     pub fn try_read(&mut self) -> Option<u16> {
-        self.sm.rx().try_pull().map(|data| (data & 0x1FF) as u16)
+        self.sm.rx().try_pull().map(|data| ((data >> 23) & 0x1FF) as u16)
     }
 
     pub fn is_empty(&mut self) -> bool {
