@@ -19,15 +19,16 @@ impl<'d, PIO: Instance, const SM_TX: usize, const SM_RX: usize> PioUart<'d, PIO,
     ) -> Self {
         // PIO program for 9-bit UART TX
         // Sends 1 start bit, 9 data bits, 1 stop bit = 11 bits total
+        // Each bit period is 8 cycles for correct baudrate timing
         let prg_tx = pio_proc::pio_asm!(
             ".side_set 1 opt"
             ".wrap_target"
-            "pull       side 1 [7]",  // Pull data from FIFO, drive line high (idle), delay
-            "set x, 8   side 0 [7]",  // Set bit counter to 8 (9 bits: 0-8), send start bit
+            "pull       side 1 [7]",  // Pull data, idle high (8 cycles total, amortized)
+            "set x, 8   side 0 [7]",  // Set counter, start bit (8 cycles)
             "bitloop:",
-            "out pins, 1       [6]",  // Shift out 1 bit
-            "jmp x-- bitloop   [6]",  // Loop for 9 data bits
-            "nop        side 1 [7]",  // Send stop bit (line high)
+            "out pins, 1       [6]",  // Output data bit (7 cycles)
+            "jmp x-- bitloop",        // Loop (1 cycle) = 7+1 = 8 cycles per bit
+            "nop        side 1 [7]",  // Stop bit (8 cycles)
             ".wrap"
         );
 
@@ -38,8 +39,8 @@ impl<'d, PIO: Instance, const SM_TX: usize, const SM_RX: usize> PioUart<'d, PIO,
             "wait 0 pin 0",          // Wait for start bit (low)
             "set x, 8     [10]",     // Set bit counter to 8 (9 bits), delay to middle of start bit
             "bitloop:",
-            "in pins, 1   [6]",      // Sample and shift in 1 bit
-            "jmp x-- bitloop [6]",   // Loop for 9 data bits
+            "in pins, 1   [6]",      // Sample and shift in 1 bit (7 cycles)
+            "jmp x-- bitloop",       // Loop (1 cycle) = 7+1 = 8 cycles per bit
             "push",                  // Push received data to FIFO
             ".wrap"
         );
@@ -84,15 +85,21 @@ impl<'d, PIO: Instance, const SM_TX: usize, const SM_RX: usize> PioUart<'d, PIO,
 
     fn calculate_clk_div(baudrate: u32) -> fixed::FixedU32<fixed::types::extra::U8> {
         // RP2040 system clock is typically 125 MHz
-        // Each bit takes 8 cycles in our PIO program
+        // Each UART bit should take the same amount of time
+        // In our PIO program, each bit takes 8 cycles (1 instruction + 7 delay)
         // clk_div = sys_clk / (baudrate * cycles_per_bit)
         let sys_clk = 125_000_000u32;
         let cycles_per_bit = 8u32;
-        // Compute division in fixed point: (sys_clk * 256) / (baudrate * cycles_per_bit)
-        let numerator = (sys_clk as u64) * 256;
-        let denominator = (baudrate as u64) * (cycles_per_bit as u64);
-        let div_fixed = (numerator / denominator) as u32;
-        fixed::FixedU32::from_bits(div_fixed)
+        
+        // Calculate using fixed-point arithmetic (8.8 format)
+        // clk_div = sys_clk / (baudrate * cycles_per_bit)
+        let divisor = baudrate * cycles_per_bit;
+        
+        // Convert to 8.8 fixed point format
+        // Multiply sys_clk by 256 to get fractional precision
+        let clk_div_u32 = ((sys_clk as u64 * 256) / divisor as u64) as u32;
+        
+        fixed::FixedU32::from_bits(clk_div_u32)
     }
 
     pub fn set_baudrate(&mut self, baudrate: u32) {
