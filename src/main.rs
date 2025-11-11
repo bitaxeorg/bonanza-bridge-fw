@@ -12,7 +12,7 @@ use embassy_rp::{
     flash::{self},
     gpio::{self},
     i2c::{self},
-    peripherals::{PIO0, UART1, USB},
+    peripherals::{PIO0, PIO1, USB},
     pio::{self},
     usb::{self},
     Peripheral,
@@ -22,9 +22,9 @@ use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use static_cell::StaticCell;
 
 mod control;
+mod pio_uart;
 mod uart;
 
-pub type AsicUart = UART1;
 pub type I2cPeripheral = embassy_rp::peripherals::I2C1;
 pub type I2cDriver = i2c::I2c<'static, I2cPeripheral, i2c::Async>;
 pub type UsbPeripheral = embassy_rp::peripherals::USB;
@@ -33,10 +33,10 @@ pub type UsbDevice = embassy_usb::UsbDevice<'static, UsbDriver>;
 
 bind_interrupts!(struct Irqs {
     USBCTRL_IRQ => usb::InterruptHandler<USB>;
-    UART1_IRQ => embassy_rp::uart::BufferedInterruptHandler<UART1>;
     I2C1_IRQ => i2c::InterruptHandler<embassy_rp::peripherals::I2C1>;
     ADC_IRQ_FIFO => embassy_rp::adc::InterruptHandler;
     PIO0_IRQ_0 => embassy_rp::pio::InterruptHandler<PIO0>;
+    PIO1_IRQ_0 => embassy_rp::pio::InterruptHandler<PIO1>;
 });
 
 const FLASH_SIZE: usize = 4 * 1024 * 1024;
@@ -103,16 +103,6 @@ async fn main(spawner: Spawner) {
         CdcAcmClass::new(&mut builder, state, 64)
     };
 
-    let asic_uart = {
-        let (tx_pin, rx_pin, uart) = (p.PIN_8, p.PIN_9, p.UART1);
-        static UART_TX_BUF: StaticCell<[u8; 64]> = StaticCell::new();
-        let tx_buf = &mut UART_TX_BUF.init([0; 64])[..];
-        static UART_RX_BUF: StaticCell<[u8; 64]> = StaticCell::new();
-        let rx_buf = &mut UART_RX_BUF.init([0; 64])[..];
-
-        embassy_rp::uart::BufferedUart::new(uart, Irqs, tx_pin, rx_pin, tx_buf, rx_buf, Default::default())
-    };
-
     let i2c = {
         let sda = p.PIN_14;
         let scl = p.PIN_15;
@@ -136,6 +126,9 @@ async fn main(spawner: Spawner) {
 
     let pio::Pio { mut common, sm0, .. } = pio::Pio::new(p.PIO0, Irqs);
     let led = control::led::Led::new(&mut common, sm0, p.PIN_1, p.DMA_CH0.into());
+
+    let pio::Pio { mut common, sm0, sm1, .. } = pio::Pio::new(p.PIO1, Irqs);
+    let asic_uart = pio_uart::PioUart::new(&mut common, sm0, sm1, p.PIN_8, p.PIN_9, 115200);
 
     unwrap!(spawner.spawn(usb_task(builder.build())));
     unwrap!(spawner.spawn(control::usb_task(control_class, i2c, gpio_pins, adc_pins, led)));
