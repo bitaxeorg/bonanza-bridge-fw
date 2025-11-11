@@ -1,7 +1,6 @@
 
 pub enum UartTaskError {
     Disconnected,
-    UartError,
 }
 
 use embassy_futures::select::{select3, Either3};

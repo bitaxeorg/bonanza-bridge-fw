@@ -109,12 +109,14 @@ impl<'d, PIO: Instance, const SM_TX: usize, const SM_RX: usize> PioUart<'d, PIO,
     }
 
     /// Read a 9-bit value (blocking)
+    #[allow(dead_code)]
     pub async fn read_u16(&mut self) -> u16 {
         let data = self.sm_rx.rx().wait_pull().await;
         (data & 0x1FF) as u16
     }
 
     /// Check if TX FIFO is full
+    #[allow(dead_code)]
     pub fn tx_is_full(&mut self) -> bool {
         self.sm_tx.tx().full()
     }
@@ -125,6 +127,7 @@ impl<'d, PIO: Instance, const SM_TX: usize, const SM_RX: usize> PioUart<'d, PIO,
     }
 
     /// Try to write a 9-bit value (non-blocking)
+    #[allow(dead_code)]
     pub fn try_write(&mut self, data: u16) -> bool {
         if !self.tx_is_full() {
             let data = data & 0x1FF;
@@ -144,6 +147,8 @@ impl<'d, PIO: Instance, const SM_TX: usize, const SM_RX: usize> PioUart<'d, PIO,
         }
     }
 
+    /// Split into separate TX and RX handles
+    #[allow(dead_code)]
     pub fn split(self) -> (PioUartTx<'d, PIO, SM_TX>, PioUartRx<'d, PIO, SM_RX>) {
         (
             PioUartTx { sm: self.sm_tx },
@@ -152,10 +157,13 @@ impl<'d, PIO: Instance, const SM_TX: usize, const SM_RX: usize> PioUart<'d, PIO,
     }
 }
 
+/// TX-only handle for split operation
+#[allow(dead_code)]
 pub struct PioUartTx<'d, PIO: Instance, const SM: usize> {
     sm: StateMachine<'d, PIO, SM>,
 }
 
+#[allow(dead_code)]
 impl<'d, PIO: Instance, const SM: usize> PioUartTx<'d, PIO, SM> {
     pub async fn write_u16(&mut self, data: u16) {
         let data = data & 0x1FF;
@@ -177,10 +185,13 @@ impl<'d, PIO: Instance, const SM: usize> PioUartTx<'d, PIO, SM> {
     }
 }
 
+/// RX-only handle for split operation
+#[allow(dead_code)]
 pub struct PioUartRx<'d, PIO: Instance, const SM: usize> {
     sm: StateMachine<'d, PIO, SM>,
 }
 
+#[allow(dead_code)]
 impl<'d, PIO: Instance, const SM: usize> PioUartRx<'d, PIO, SM> {
     pub async fn read_u16(&mut self) -> u16 {
         let data = self.sm.rx().wait_pull().await;
