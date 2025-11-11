@@ -118,6 +118,7 @@ Data:
 Example:
 
 - Set pwr_en High: `07 00 00 00 06 00 01`
+- Set 5v_en High: `07 00 00 00 06 01 01`
 - Get asic_rst: `06 00 00 00 06 02`
 - Get asic_trip: `06 00 00 00 06 03`
 
