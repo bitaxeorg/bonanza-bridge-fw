@@ -65,7 +65,9 @@ impl<'d, PIO: Instance, const SM_TX: usize, const SM_RX: usize> PioUart<'d, PIO,
         sm_tx.set_enable(true);
 
         // Install RX program
-        let rx_pin = pio.make_pio_pin(rx_pin);
+        let mut rx_pin = pio.make_pio_pin(rx_pin);
+        // Enable pull-up on RX pin so it idles high when nothing is connected
+        rx_pin.set_pull(embassy_rp::gpio::Pull::Up);
         sm_rx.set_pin_dirs(Direction::In, &[&rx_pin]);
         let mut cfg_rx = Config::default();
         let prg_rx_loaded = pio.load_program(&prg_rx.program);
