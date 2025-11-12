@@ -12,7 +12,7 @@ use embassy_rp::{
     flash::{self},
     gpio::{self},
     i2c::{self},
-    peripherals::{PIO0, PIO1, USB},
+    peripherals::{PIO1, USB},
     pio::{self},
     usb::{self},
     Peripheral,
@@ -35,7 +35,6 @@ bind_interrupts!(struct Irqs {
     USBCTRL_IRQ => usb::InterruptHandler<USB>;
     I2C1_IRQ => i2c::InterruptHandler<embassy_rp::peripherals::I2C1>;
     ADC_IRQ_FIFO => embassy_rp::adc::InterruptHandler;
-    PIO0_IRQ_0 => embassy_rp::pio::InterruptHandler<PIO0>;
     PIO1_IRQ_0 => embassy_rp::pio::InterruptHandler<PIO1>;
 });
 
@@ -124,14 +123,11 @@ async fn main(spawner: Spawner) {
         domain3: adc::Channel::new_pin(p.PIN_28, gpio::Pull::None),
     };
 
-    let pio::Pio { mut common, sm0, .. } = pio::Pio::new(p.PIO0, Irqs);
-    let led = control::led::Led::new(&mut common, sm0, p.PIN_1, p.DMA_CH0.into());
-
     let pio::Pio { mut common, sm0, sm1, .. } = pio::Pio::new(p.PIO1, Irqs);
     let asic_uart = pio_uart::PioUart::new(&mut common, sm0, sm1, p.PIN_8, p.PIN_9, 115200);
 
     unwrap!(spawner.spawn(usb_task(builder.build())));
-    unwrap!(spawner.spawn(control::usb_task(control_class, i2c, gpio_pins, adc_pins, led)));
+    unwrap!(spawner.spawn(control::usb_task(control_class, i2c, gpio_pins, adc_pins)));
     unwrap!(spawner.spawn(uart::usb_task(asic_uart_class, asic_uart)));
 
     loop {

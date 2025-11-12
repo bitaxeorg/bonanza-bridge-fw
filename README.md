@@ -48,7 +48,7 @@ elf2uf2-rs -d target/thumbv6m-none-eabi/release/firmware
 ```
 
 ## Running
-The usbserial firmware will create two serial ports. Usually the first serial port is "control serial" like I2C, GPIO, ADC and LED. The second serial port is "data serial" and is pass through UART.
+The usbserial firmware will create two serial ports. The first serial port is "control serial" for I2C, GPIO, and ADC. The second serial port is "data serial" and is pass through UART.
 
 ### Data Serial
 - Second serial port
@@ -92,7 +92,6 @@ Examples:
 	- I2C:  0x05
 	- GPIO: 0x06
 	- ADC:  0x07
-	- LED:  0x08 
 5. command 
 	- varies by command page. See below
 6. data
@@ -149,17 +148,3 @@ Example:
 
 - read domain1: `06 00 00 00 07 50`
 - read domain2: `06 00 00 00 07 51`
-
-**LED**
-
-Commands:
-
-- Set Color: 0x10
-
-Data:
-
-- [R, G, B]
-
-Example:
-
-- Set LED Magenta: `09 00 00 00 08 10 FF 00 FF`
