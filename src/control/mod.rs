@@ -19,6 +19,9 @@ const GPIO_COMMAND: u8 = 6;
 pub mod adc;
 const ADC_COMMAND: u8 = 7;
 
+pub mod fan;
+const FAN_COMMAND: u8 = 9;
+
 
 #[derive(defmt::Format)]
 struct Command {
@@ -32,6 +35,7 @@ enum CommandInner {
     I2c(i2c::Command),
     Gpio(gpio::Command),
     Adc(adc::Command),
+    Fan(fan::Command),
     Error(CommandError),
 }
 
@@ -53,6 +57,11 @@ impl Command {
                 id,
                 bus: buf[1],
                 inner: CommandInner::Adc(adc::Command::from_bytes(&buf[3..])?),
+            }),
+            FAN_COMMAND => Ok(Self {
+                id,
+                bus: buf[1],
+                inner: CommandInner::Fan(fan::Command::from_bytes(&buf[3..])?),
             }),
             _ => Err(CommandError::Invalid),
         }
@@ -101,6 +110,7 @@ pub struct Controller {
     i2c: super::I2cDriver,
     gpio: gpio::Pins<'static>,
     adc: adc::Pins<'static>,
+    fan: fan::Pins<'static>,
 }
 
 pub trait ControllerCommand {
@@ -115,6 +125,7 @@ impl Controller {
                 CommandInner::I2c(cmd) => cmd.handle(self).await,
                 CommandInner::Gpio(cmd) => cmd.handle(self).await,
                 CommandInner::Adc(cmd) => cmd.handle(self).await,
+                CommandInner::Fan(cmd) => cmd.handle(self).await,
                 CommandInner::Error(err) => Err(err),
             };
 
@@ -139,9 +150,9 @@ impl Controller {
 }
 
 #[embassy_executor::task]
-pub async fn usb_task(class: CdcAcmClass<'static, super::UsbDriver>, i2c: super::I2cDriver, gpio: gpio::Pins<'static>, adc: adc::Pins<'static>) -> ! {
+pub async fn usb_task(class: CdcAcmClass<'static, super::UsbDriver>, i2c: super::I2cDriver, gpio: gpio::Pins<'static>, adc: adc::Pins<'static>, fan: fan::Pins<'static>) -> ! {
     let (tx, mut rx, mut _ctrl) = class.split_with_control();
-    let mut controller = Controller { tx, i2c, gpio, adc };
+    let mut controller = Controller { tx, i2c, gpio, adc, fan };
 
     loop {
         rx.wait_connection().await;

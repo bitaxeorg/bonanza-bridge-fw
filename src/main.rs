@@ -14,6 +14,7 @@ use embassy_rp::{
     i2c::{self},
     peripherals::{PIO1, USB},
     pio::{self},
+    pwm::{self},
     usb::{self},
     Peripheral,
 };
@@ -123,11 +124,27 @@ async fn main(spawner: Spawner) {
         domain3: adc::Channel::new_pin(p.PIN_28, gpio::Pull::None),
     };
 
+    let fan_pins = {
+        let mut pwm_config = pwm::Config::default();
+        pwm_config.top = 1000; // 1000 steps for 0.1% resolution
+        pwm_config.compare_a = 0; // Start at 0% duty cycle
+        pwm_config.compare_b = 0;
+        pwm_config.divider = 5.into(); // 125MHz / 5 / 1000 = 25kHz
+        pwm_config.invert_a = false;
+        pwm_config.phase_correct = false;
+        pwm_config.enable = true; // Explicitly enable PWM
+        
+        let pwm = pwm::Pwm::new_output_a(p.PWM_SLICE2, p.PIN_20, pwm_config.clone());
+        
+        let tach = gpio::Input::new(p.PIN_21, gpio::Pull::None);
+        control::fan::Pins { pwm, tach }
+    };
+
     let pio::Pio { mut common, sm0, sm1, .. } = pio::Pio::new(p.PIO1, Irqs);
     let asic_uart = pio_uart::PioUart::new(&mut common, sm0, sm1, p.PIN_8, p.PIN_9, 115200);
 
     unwrap!(spawner.spawn(usb_task(builder.build())));
-    unwrap!(spawner.spawn(control::usb_task(control_class, i2c, gpio_pins, adc_pins)));
+    unwrap!(spawner.spawn(control::usb_task(control_class, i2c, gpio_pins, adc_pins, fan_pins)));
     unwrap!(spawner.spawn(uart::usb_task(asic_uart_class, asic_uart)));
 
     loop {

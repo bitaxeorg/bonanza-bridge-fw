@@ -148,3 +148,20 @@ Example:
 
 - read domain1: `06 00 00 00 07 50`
 - read domain2: `06 00 00 00 07 51`
+
+**Fan**
+
+Commands:
+
+- set speed: 0x10
+- get tachometer: 0x20
+
+Data:
+
+- [speed percentage 0-100] (for set speed command)
+
+Example:
+
+- Set fan speed to 50%: `07 00 00 00 09 10 32`
+- Set fan speed to 100%: `07 00 00 00 09 10 64`
+- Get fan tachometer (RPM): `06 00 00 00 09 20`
