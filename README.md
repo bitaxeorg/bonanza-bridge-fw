@@ -92,6 +92,7 @@ Examples:
 	- I2C:  0x05
 	- GPIO: 0x06
 	- ADC:  0x07
+	- Fan: 0x09
 5. command 
 	- varies by command page. See below
 6. data
@@ -162,6 +163,6 @@ Data:
 
 Example:
 
-- Set fan speed to 50%: `07 00 00 00 09 10 32`
+- Set fan speed to 50%:  `07 00 00 00 09 10 32`
 - Set fan speed to 100%: `07 00 00 00 09 10 64`
-- Get fan tachometer (RPM): `06 00 00 00 09 20`
+- Read fan tach (RPM):   `06 00 00 00 09 20`
