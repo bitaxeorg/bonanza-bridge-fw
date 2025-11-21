@@ -48,16 +48,15 @@ pub async fn pipe_uart<'d, T: usb::Instance + 'd>(
     uart: &mut PioUart<'static, embassy_rp::peripherals::PIO1, 0, 1>,
 ) -> Result<(), UartTaskError> {
     let mut usb_buf = [0u8; 64];
+    let mut uart_buf = [0u8; 64];
     let mut pending_byte: Option<u8> = None;
 
     loop {
         let usb_read = usb_rx.read_packet(&mut usb_buf);
         let control_change = ctrl.control_changed();
+        let uart_read = uart.read_u16();
 
-        // Poll UART for received data
-        let uart_has_data = !uart.rx_is_empty();
-
-        match select3(usb_read, control_change, embassy_futures::yield_now()).await {
+        match select3(usb_read, control_change, uart_read).await {
             // Forward data from USB host to UART as 9-bit words
             // Expects pairs of bytes: [data_low, bit8, data_low, bit8, ...]
             Either3::First(result) => {
@@ -96,27 +95,27 @@ pub async fn pipe_uart<'d, T: usb::Instance + 'd>(
                 let baudrate = line_coding.data_rate();
                 uart.set_baudrate(baudrate);
             }
-            // Check for UART RX data and forward to USB as pairs of bytes
-            Either3::Third(()) => {
-                if uart_has_data {
-                    let mut buf = [0u8; 64];
-                    let mut count = 0;
-                    
-                    // Read 9-bit words from UART and encode as pairs of bytes
-                    while count + 1 < buf.len() {
-                        if let Some(word) = uart.try_read() {
-                            buf[count] = (word & 0xFF) as u8;      // Lower 8 bits
-                            buf[count + 1] = ((word >> 8) & 0x01) as u8; // Bit 8
-                            count += 2;
-                        } else {
-                            break;
-                        }
-                    }
-                    
-                    if count > 0 {
-                        usb_tx.write_packet(&buf[..count]).await?;
+            // Forward UART RX data to USB as pairs of bytes
+            Either3::Third(word) => {
+                let mut count = 0;
+                
+                // Add the first received word
+                uart_buf[count] = (word & 0xFF) as u8;
+                uart_buf[count + 1] = ((word >> 8) & 0x01) as u8;
+                count += 2;
+                
+                // Opportunistically drain any additional buffered data
+                while count + 1 < uart_buf.len() {
+                    if let Some(word) = uart.try_read() {
+                        uart_buf[count] = (word & 0xFF) as u8;
+                        uart_buf[count + 1] = ((word >> 8) & 0x01) as u8;
+                        count += 2;
+                    } else {
+                        break;
                     }
                 }
+                
+                usb_tx.write_packet(&uart_buf[..count]).await?;
             }
         }
     }
