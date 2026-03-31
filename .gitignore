@@ -1,3 +1,4 @@
 target/
 espup
 firmware.uf2
+.vscode/
