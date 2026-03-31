@@ -39,7 +39,6 @@ async fn main(spawner: Spawner) {
     watchdog.feed();
 
     let gpio_pins = control::gpio::Pins {
-        pwr_en: gpio::Output::new(p.PIN_19, gpio::Level::Low),
         v5_en: gpio::Output::new(p.PIN_18, gpio::Level::Low),
         asic_rst: gpio::Output::new(p.PIN_11, gpio::Level::High),
         asic_trip: gpio::Input::new(p.PIN_10, gpio::Pull::None),

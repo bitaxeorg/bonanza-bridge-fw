@@ -2,7 +2,6 @@ use super::CommandError;
 use heapless::Vec;
 
 pub struct Pins<'d> {
-    pub pwr_en: embassy_rp::gpio::Output<'d>,
     pub v5_en: embassy_rp::gpio::Output<'d>,
     pub asic_rst: embassy_rp::gpio::Output<'d>,
     pub asic_trip: embassy_rp::gpio::Input<'d>,
@@ -10,9 +9,6 @@ pub struct Pins<'d> {
 
 #[derive(defmt::Format)]
 pub enum Command {
-    SetPwrEn { level: bool },
-    GetPwrEn,
-
     Set5vEn { level: bool },
     Get5vEn,
 
@@ -26,10 +22,6 @@ impl Command {
     pub fn from_bytes(buf: &[u8]) -> Result<Self, CommandError> {
         defmt::println!("GETTING GPIO COMMAND FROM BYTES {:x}", buf);
         match buf {
-            // Get Power Enable
-            [0x00] => Ok(Self::GetPwrEn),
-            // Set Power Enable
-            [0x00, level] => Ok(Self::SetPwrEn { level: *level > 0 }),
             // Get 5V Enable
             [0x01] => Ok(Self::Get5vEn),
             // Set 5V Enable
@@ -48,11 +40,6 @@ impl Command {
 impl super::ControllerCommand for Command {
     async fn handle(&self, controller: &mut super::Controller) -> Result<Vec<u8, 256>, CommandError> {
         let level = match self {
-            Command::GetPwrEn => bool::from(controller.gpio.pwr_en.get_output_level()),
-            Command::SetPwrEn { level } => {
-                controller.gpio.pwr_en.set_level((*level).into());
-                *level
-            }
             Command::Get5vEn => bool::from(controller.gpio.v5_en.get_output_level()),
             Command::Set5vEn { level } => {
                 controller.gpio.v5_en.set_level((*level).into());
