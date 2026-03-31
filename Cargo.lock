@@ -300,7 +300,6 @@ name = "embassy-embedded-hal"
 version = "0.2.0"
 source = "git+https://github.com/embassy-rs/embassy#c77560430ec781d54f3d121e1b0f771262359899"
 dependencies = [
- "defmt",
  "embassy-futures",
  "embassy-sync",
  "embassy-time",
@@ -400,7 +399,6 @@ source = "git+https://github.com/embassy-rs/embassy#c77560430ec781d54f3d121e1b0f
 dependencies = [
  "cfg-if",
  "critical-section",
- "defmt",
  "embedded-io-async",
  "futures-sink",
  "futures-util",
@@ -536,11 +534,9 @@ dependencies = [
  "cortex-m-rt",
  "defmt",
  "defmt-rtt",
- "embassy-embedded-hal",
  "embassy-executor",
  "embassy-futures",
  "embassy-rp",
- "embassy-sync",
  "embassy-time",
  "embedded-io-async",
  "fixed",

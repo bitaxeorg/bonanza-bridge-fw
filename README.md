@@ -97,9 +97,7 @@ Examples:
 3. command bus
 	- always 0x00
 4. command page
-	- I2C:  0x05
 	- GPIO: 0x06
-	- ADC:  0x07
 	- Fan: 0x09
 5. command 
 	- varies by command page. See below
@@ -123,31 +121,11 @@ Responses are also length-prefixed:
 
 - `0x10`: timeout while receiving a packet
 - `0x11`: invalid command or malformed packet
-- `0x12`: buffer overflow
-- `0xFF`: command-specific string error
 
 **Packet Timing**
 
 - Control packets should be sent as a continuous byte stream.
 - A partial control packet that stalls for more than a few milliseconds is treated as a timeout error.
-
-**I2C**
-
-Commands:
-
-- write: 0x20
-- read: 0x30
-- readwrite: 0x40
-
-Data:
-
-- [I2C address, (bytes to write), (number of bytes to read)]
-
-Example:
-
-- write 0xDE to addr 0x4F: `08 00 01 00 05 20 4F DE`
-- read one byte from addr 0x4C: `08 00 01 00 05 30 4C 01`
-- readwrite two bytes from addr 0x32, reg 0xFE: `09 00 01 00 05 40 32 FE 02`
 
 **GPIO**
 
@@ -168,19 +146,6 @@ Example:
 - Set 5v_en High: `07 00 00 00 06 01 01`
 - Get asic_rst: `06 00 00 00 06 02`
 - Get asic_trip: `06 00 00 00 06 03`
-
-**ADC**
-
-Commands:
-
-- read domain1: 0x50
-- read domain2: 0x51
-- read domain3: 0x52
-
-Example:
-
-- read domain1: `06 00 00 00 07 50`
-- read domain2: `06 00 00 00 07 51`
 
 **Fan**
 

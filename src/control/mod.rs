@@ -8,14 +8,8 @@ use embassy_time::{Duration, TimeoutError};
 use embedded_io_async::{Read, Write};
 use heapless::Vec;
 
-pub mod i2c;
-const I2C_COMMAND: u8 = 5;
-
 pub mod gpio;
 const GPIO_COMMAND: u8 = 6;
-
-pub mod adc;
-const ADC_COMMAND: u8 = 7;
 
 pub mod fan;
 const FAN_COMMAND: u8 = 9;
@@ -29,9 +23,7 @@ struct Command {
 
 #[derive(defmt::Format)]
 enum CommandInner {
-    I2c(i2c::Command),
     Gpio(gpio::Command),
-    Adc(adc::Command),
     Fan(fan::Command),
 }
 
@@ -39,20 +31,10 @@ impl Command {
     fn from_bytes(buf: &[u8]) -> Result<Self, CommandError> {
         let id = buf[0];
         match buf[2] {
-            I2C_COMMAND => Ok(Self {
-                id,
-                _bus: buf[1],
-                inner: CommandInner::I2c(i2c::Command::from_bytes(&buf[3..])?),
-            }),
             GPIO_COMMAND => Ok(Self {
                 id,
                 _bus: buf[1],
                 inner: CommandInner::Gpio(gpio::Command::from_bytes(&buf[3..])?),
-            }),
-            ADC_COMMAND => Ok(Self {
-                id,
-                _bus: buf[1],
-                inner: CommandInner::Adc(adc::Command::from_bytes(&buf[3..])?),
             }),
             FAN_COMMAND => Ok(Self {
                 id,
@@ -66,10 +48,8 @@ impl Command {
 
 #[derive(defmt::Format)]
 pub enum CommandError {
-    Timeout,               // 0x10
-    Invalid,               // 0x11
-    BufferOverflow,        // 0x12
-    Message(&'static str), // 0xff
+    Timeout, // 0x10
+    Invalid, // 0x11
 }
 
 impl CommandError {
@@ -83,13 +63,6 @@ impl CommandError {
             }
             CommandError::Invalid => {
                 buf.push(0x11).unwrap();
-            }
-            CommandError::BufferOverflow => {
-                buf.push(0x12).unwrap();
-            }
-            CommandError::Message(msg) => {
-                buf.push(0xff).unwrap();
-                buf.extend_from_slice(msg.as_bytes()).unwrap();
             }
         }
 
@@ -105,9 +78,7 @@ enum ReadPacketResult {
 }
 
 pub struct Controller {
-    i2c: super::I2cDriver,
     gpio: gpio::Pins<'static>,
-    adc: adc::Pins<'static>,
     fan: fan::Pins<'static>,
 }
 
@@ -118,9 +89,7 @@ pub trait ControllerCommand {
 impl Controller {
     async fn handle_command(&mut self, cmd: Command) -> Vec<u8, 260> {
         let res = match cmd.inner {
-            CommandInner::I2c(cmd) => cmd.handle(self).await,
             CommandInner::Gpio(cmd) => cmd.handle(self).await,
-            CommandInner::Adc(cmd) => cmd.handle(self).await,
             CommandInner::Fan(cmd) => cmd.handle(self).await,
         };
 
@@ -139,8 +108,8 @@ impl Controller {
 }
 
 #[embassy_executor::task]
-pub async fn uart_task(mut uart: BufferedUart<'static, UART0>, i2c: super::I2cDriver, gpio: gpio::Pins<'static>, adc: adc::Pins<'static>, fan: fan::Pins<'static>) -> ! {
-    let mut controller = Controller { i2c, gpio, adc, fan };
+pub async fn uart_task(mut uart: BufferedUart<'static, UART0>, gpio: gpio::Pins<'static>, fan: fan::Pins<'static>) -> ! {
+    let mut controller = Controller { gpio, fan };
     let mut frame_buf = [0u8; 4098];
     let mut frame_len = 0usize;
 
