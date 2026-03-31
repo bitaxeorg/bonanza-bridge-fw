@@ -1,8 +1,8 @@
-# bitaxe-raw usbserial firmware
+# bitaxe-raw-bonanza firmware
 
-bitaxe-raw is usbserial passthrough firmware for talking directly to ASICs and board peripherals over USB. This `pico` version supports the RP2040 (like in the RPi Pico dev board). The asic UART has been moved to PIO1 to support 9bit serial frames for the Intel BZM2 ASIC.
+bitaxe-raw-bonanza is RP2040 passthrough firmware for communicating with ASICs and board peripherals from a ESP32S3. The asic UART has been moved to PIO1 to support 9bit serial frames for the Intel BZM2 ASIC.
 
-This branch is targeting the [bitaxeBIRDS](https://github.com/bitaxeorg/bitaxebirds) BZM2 dev board.
+This branch is targeting the [bitaxeBonanza-1002x](https://github.com/bitaxeorg/bitaxeBonanza/tree/1002x)
 
 ## Developing
 
@@ -48,15 +48,23 @@ elf2uf2-rs -d target/thumbv6m-none-eabi/release/firmware
 ```
 
 ## Running
-The usbserial firmware will create two serial ports. The first serial port is "control serial" for I2C, GPIO, and ADC. The second serial port is "data serial" and is pass through UART.
+The RP2040 bonanza firmware exposes two hardware UART interfaces to the ESP32S3 and one PIO-based 9-bit UART to the ASIC. USB serial is not used by this firmware.
+
+### Serial Interfaces
+
+| Interface | RP2040 Peripheral | RP2040 Pins | Format | Baudrate | Purpose |
+|-----------|-------------------|-------------|--------|----------|---------|
+| Control Serial | UART0 | TX: GPIO0, RX: GPIO1 | 8N1 | 115200 | Fan control and board control commands |
+| Data Serial | UART1 | TX: GPIO4, RX: GPIO5 | 8N1 | 5000000 | ESP32S3-side ASIC data stream |
+| ASIC Serial | PIO1 | TX: GPIO8, RX: GPIO9 | 9N1 | 5000000 | BZM2 ASIC-side data stream |
 
 ### Data Serial
-- Second serial port
-- **9-bit serial (9N1)**: 9 data bits, no parity, 1 stop bit
-- All data is passed through bidirectionally
-- USB serial baudrate is mirrored to the 9-bit UART output. Baudrates up to 5Mbaud have been tested, and seem to work 🤞
+- Uses RP2040 UART1 on GPIO4/GPIO5.
+- 8N1 on the ESP32S3 side and 9N1 on the BZM2 ASIC side.
+- All data is passed through bidirectionally.
+- The firmware currently uses a fixed baudrate of 5000000 on both sides.
 
-**9-bit Data Encoding over USB:**
+**8-bit to 9-bit Data Encoding:**
 
 Data is sent/received as pairs of bytes:
 - **First byte**: Lower 8 bits of the 9-bit word (bits 0-7)
@@ -65,14 +73,14 @@ Data is sent/received as pairs of bytes:
 Examples:
 - To send `0x155` (binary: `1_01010101`): Send bytes `[0x55, 0x01]`
 - To send `0x0AA` (binary: `0_10101010`): Send bytes `[0xAA, 0x00]`
-- Received 9-bit data is sent to USB in the same format
+- Received 9-bit data is sent to ESP32 in the same format
 
 **Note:** The 9th bit can be used for addressing or protocol-specific purposes depending on your ASIC requirements.
 
-
 ### Control Serial
-- First serial port
-- baudrate does not matter
+- Uses RP2040 UART0 on GPIO0/GPIO1.
+- Format is 8N1.
+- The firmware currently uses a fixed baudrate of 115200.
 
 **Packet Format**
 
@@ -83,11 +91,11 @@ Examples:
 ```
 0. length low
 1. length high
-	- packet length is number of bytes of the whole packet. 
+	- packet length is the number of bytes in the whole packet.
 2. command id
-	- Whatever byte you want. will be returned in the response 
+	- Whatever byte you want. It will be returned in the response.
 3. command bus
-	- always 0x00 
+	- always 0x00
 4. command page
 	- I2C:  0x05
 	- GPIO: 0x06
@@ -98,6 +106,30 @@ Examples:
 6. data
 	- data to write. variable length. See below
 ```
+
+**Response Format**
+
+Responses are also length-prefixed:
+
+| 0      | 1      | 2  | 3... |
+|--------|--------|----|------|
+| LEN LO | LEN HI | ID | DATA |
+
+- `ID` echoes the command ID from the request.
+- `DATA` is the command response payload.
+- Error responses use the same framing and return an error code in `DATA[0]`.
+
+**Error Codes**
+
+- `0x10`: timeout while receiving a packet
+- `0x11`: invalid command or malformed packet
+- `0x12`: buffer overflow
+- `0xFF`: command-specific string error
+
+**Packet Timing**
+
+- Control packets should be sent as a continuous byte stream.
+- A partial control packet that stalls for more than a few milliseconds is treated as a timeout error.
 
 **I2C**
 

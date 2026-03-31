@@ -1,6 +1,4 @@
-use embassy_rp::pio::{
-    Config, Direction, FifoJoin, Instance, PioPin, ShiftDirection, StateMachine,
-};
+use embassy_rp::pio::{Config, Direction, FifoJoin, Instance, PioPin, ShiftDirection, StateMachine};
 
 /// PIO-based 9N1 UART (9 data bits, no parity, 1 stop bit)
 pub struct PioUart<'d, PIO: Instance, const SM_TX: usize, const SM_RX: usize> {
@@ -9,14 +7,7 @@ pub struct PioUart<'d, PIO: Instance, const SM_TX: usize, const SM_RX: usize> {
 }
 
 impl<'d, PIO: Instance, const SM_TX: usize, const SM_RX: usize> PioUart<'d, PIO, SM_TX, SM_RX> {
-    pub fn new(
-        pio: &mut embassy_rp::pio::Common<'d, PIO>,
-        mut sm_tx: StateMachine<'d, PIO, SM_TX>,
-        mut sm_rx: StateMachine<'d, PIO, SM_RX>,
-        tx_pin: impl PioPin,
-        rx_pin: impl PioPin,
-        baudrate: u32,
-    ) -> Self {
+    pub fn new(pio: &mut embassy_rp::pio::Common<'d, PIO>, mut sm_tx: StateMachine<'d, PIO, SM_TX>, mut sm_rx: StateMachine<'d, PIO, SM_RX>, tx_pin: impl PioPin, rx_pin: impl PioPin, baudrate: u32) -> Self {
         // PIO program for 9-bit UART TX
         // Sends 1 start bit, 9 data bits, 1 stop bit = 11 bits total
         // Each bit period is 8 cycles for correct baudrate timing
@@ -57,10 +48,10 @@ impl<'d, PIO: Instance, const SM_TX: usize, const SM_RX: usize> PioUart<'d, PIO,
         cfg_tx.shift_out.auto_fill = false;
         cfg_tx.shift_out.threshold = 32;
         cfg_tx.fifo_join = FifoJoin::TxOnly;
-        
+
         // Calculate clock divider for baudrate
         cfg_tx.clock_divider = Self::calculate_clk_div(baudrate);
-        
+
         sm_tx.set_config(&cfg_tx);
         sm_tx.set_enable(true);
 
@@ -73,12 +64,12 @@ impl<'d, PIO: Instance, const SM_TX: usize, const SM_RX: usize> PioUart<'d, PIO,
         let prg_rx_loaded = pio.load_program(&prg_rx.program);
         cfg_rx.use_program(&prg_rx_loaded, &[]);
         cfg_rx.set_in_pins(&[&rx_pin]);
-        cfg_rx.shift_in.direction = ShiftDirection::Right;  // Shift right (LSB first) like standard UART
-        cfg_rx.shift_in.auto_fill = true;   // Enable autopush
-        cfg_rx.shift_in.threshold = 9;      // Autopush after 9 bits
+        cfg_rx.shift_in.direction = ShiftDirection::Right; // Shift right (LSB first) like standard UART
+        cfg_rx.shift_in.auto_fill = true; // Enable autopush
+        cfg_rx.shift_in.threshold = 9; // Autopush after 9 bits
         cfg_rx.fifo_join = FifoJoin::RxOnly;
         cfg_rx.clock_divider = Self::calculate_clk_div(baudrate);
-        
+
         sm_rx.set_config(&cfg_rx);
         sm_rx.set_enable(true);
 
@@ -92,18 +83,19 @@ impl<'d, PIO: Instance, const SM_TX: usize, const SM_RX: usize> PioUart<'d, PIO,
         // clk_div = sys_clk / (baudrate * cycles_per_bit)
         let sys_clk = 125_000_000u32;
         let cycles_per_bit = 8u32;
-        
+
         // Calculate using fixed-point arithmetic (8.8 format)
         // clk_div = sys_clk / (baudrate * cycles_per_bit)
         let divisor = baudrate * cycles_per_bit;
-        
+
         // Convert to 8.8 fixed point format
         // Multiply sys_clk by 256 to get fractional precision
         let clk_div_u32 = ((sys_clk as u64 * 256) / divisor as u64) as u32;
-        
+
         fixed::FixedU32::from_bits(clk_div_u32)
     }
 
+    #[allow(dead_code)]
     pub fn set_baudrate(&mut self, baudrate: u32) {
         let clk_div = Self::calculate_clk_div(baudrate);
         self.sm_tx.set_clock_divider(clk_div);
@@ -131,6 +123,7 @@ impl<'d, PIO: Instance, const SM_TX: usize, const SM_RX: usize> PioUart<'d, PIO,
     }
 
     /// Check if RX FIFO is empty
+    #[allow(dead_code)]
     pub fn rx_is_empty(&mut self) -> bool {
         self.sm_rx.rx().empty()
     }
@@ -161,10 +154,7 @@ impl<'d, PIO: Instance, const SM_TX: usize, const SM_RX: usize> PioUart<'d, PIO,
     /// Split into separate TX and RX handles
     #[allow(dead_code)]
     pub fn split(self) -> (PioUartTx<'d, PIO, SM_TX>, PioUartRx<'d, PIO, SM_RX>) {
-        (
-            PioUartTx { sm: self.sm_tx },
-            PioUartRx { sm: self.sm_rx },
-        )
+        (PioUartTx { sm: self.sm_tx }, PioUartRx { sm: self.sm_rx })
     }
 }
 
