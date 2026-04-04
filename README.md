@@ -1,8 +1,8 @@
-# bitaxe-raw-bonanza firmware
+# bonanza-bridge-fw
 
-bitaxe-raw-bonanza is RP2040 passthrough firmware for communicating with ASICs and board peripherals from a ESP32S3. The asic UART has been moved to PIO1 to support 9bit serial frames for the Intel BZM2 ASIC.
+bonanza-bridge-fw is RP2040 passthrough firmware for communicating with ASICs and board peripherals from a ESP32S3. The asic UART has been moved to PIO1 to support 9bit serial frames for the Intel BZM2 ASIC.
 
-This branch is targeting the [bitaxeBonanza-1002x](https://github.com/bitaxeorg/bitaxeBonanza/tree/1002x)
+This firmware targets the [bitaxeBonanza-1002x](https://github.com/bitaxeorg/bitaxeBonanza/tree/1002x).
 
 ## Developing
 
@@ -41,14 +41,14 @@ For UF2-based development:
 cargo build --release
 
 # Convert the ELF to an RP2040-compatible UF2 image:
-elf2uf2-rs target/thumbv6m-none-eabi/release/firmware firmware.uf2
+elf2uf2-rs target/thumbv6m-none-eabi/release/bonanza-bridge-fw bonanza-bridge-fw.uf2
 
 # Convert and deploy the UF2 image to an mounted RP2040:
-elf2uf2-rs -d target/thumbv6m-none-eabi/release/firmware
+elf2uf2-rs -d target/thumbv6m-none-eabi/release/bonanza-bridge-fw
 ```
 
 ## Running
-The RP2040 bonanza firmware exposes two hardware UART interfaces to the ESP32S3 and one PIO-based 9-bit UART to the ASIC. USB serial is not used by this firmware.
+The bonanza-bridge-fw firmware exposes two hardware UART interfaces to the ESP32S3 and one PIO-based 9-bit UART to the ASIC. USB serial is not used by this firmware.
 
 ### Serial Interfaces
 
