@@ -22,16 +22,18 @@ pub async fn uart_task(serial: BufferedUart<'static, UART1>, mut uart: PioUart<'
 
 /// Handle ESP32 UART1 <-> ASIC 9-bit UART forwarding.
 ///
-/// 9-bit serial data is encoded as byte pairs on UART1:
+/// ESP32-to-ASIC data is encoded as byte pairs on UART1:
 /// - First byte: lower 8 bits of the 9-bit word
 /// - Second byte: bit 8 (0 or 1)
+///
+/// ASIC-to-ESP32 data drops the 9th bit and is forwarded as single bytes.
 pub async fn pipe_uart(serial_tx: &mut BufferedUartTx<'static, UART1>, serial_rx: &mut BufferedUartRx<'static, UART1>, uart: &mut PioUart<'static, PIO1, 0, 1>) -> Result<(), SerialError> {
     let mut serial_buf = [0u8; 64];
     let mut uart_buf = [0u8; 64];
     let mut pending_byte: Option<u8> = None;
 
     loop {
-        match select(serial_rx.read(&mut serial_buf), uart.read_u16()).await {
+        match select(serial_rx.read(&mut serial_buf), uart.read_u8()).await {
             Either::First(result) => {
                 let n = result?;
                 if n == 0 {
@@ -64,17 +66,15 @@ pub async fn pipe_uart(serial_tx: &mut BufferedUartTx<'static, UART1>, serial_rx
                     pending_byte = Some(data[i]);
                 }
             }
-            Either::Second(word) => {
+            Either::Second(byte) => {
                 let mut count = 0;
-                uart_buf[count] = (word & 0xFF) as u8;
-                uart_buf[count + 1] = ((word >> 8) & 0x01) as u8;
-                count += 2;
+                uart_buf[count] = byte;
+                count += 1;
 
-                while count + 1 < uart_buf.len() {
-                    if let Some(word) = uart.try_read() {
-                        uart_buf[count] = (word & 0xFF) as u8;
-                        uart_buf[count + 1] = ((word >> 8) & 0x01) as u8;
-                        count += 2;
+                while count < uart_buf.len() {
+                    if let Some(byte) = uart.try_read() {
+                        uart_buf[count] = byte;
+                        count += 1;
                     } else {
                         break;
                     }
