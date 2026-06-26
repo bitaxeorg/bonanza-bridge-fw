@@ -64,16 +64,16 @@ The bonanza-bridge-fw firmware exposes two hardware UART interfaces to the ESP32
 - All data is passed through bidirectionally.
 - The firmware currently uses a fixed baudrate of 5000000 on both sides.
 
-**8-bit to 9-bit Data Encoding:**
+**ESP32-to-ASIC 9-bit Data Encoding:**
 
-Data is sent/received as pairs of bytes:
+Data sent from the ESP32S3 to the ASIC is encoded as pairs of bytes:
 - **First byte**: Lower 8 bits of the 9-bit word (bits 0-7)
 - **Second byte**: Bit 8 (only LSB is used, can be 0 or 1)
 
 Examples:
 - To send `0x155` (binary: `1_01010101`): Send bytes `[0x55, 0x01]`
 - To send `0x0AA` (binary: `0_10101010`): Send bytes `[0xAA, 0x00]`
-- Received 9-bit data is sent to ESP32 in the same format
+- Received ASIC data is forwarded to the ESP32S3 as single bytes; the 9th bit is dropped on RX.
 
 **Note:** The 9th bit can be used for addressing or protocol-specific purposes depending on your ASIC requirements.
 
