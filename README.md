@@ -97,6 +97,7 @@ Examples:
 3. command bus
 	- always 0x00
 4. command page
+	- System: 0x00
 	- GPIO: 0x06
 	- Fan: 0x09
 5. command 
@@ -126,6 +127,31 @@ Responses are also length-prefixed:
 
 - Control packets should be sent as a continuous byte stream.
 - A partial control packet that stalls for more than a few milliseconds is treated as a timeout error.
+
+**System**
+
+Commands:
+
+- get info: `0x01`
+
+The get-info response payload is:
+
+| 0 | 1 | 2 | 3 | 4... |
+|---|---|---|---|---|
+| Schema version | Protocol major | Protocol minor | Version length | Version string |
+
+- The current schema version is `1` and the control protocol version is `1.0`.
+- The version string is printable ASCII and no more than 63 bytes.
+- By default, builds report `<package-version>+g<short-git-sha>`, followed by `.dirty` when built from a modified checkout.
+- Manufacturers can set `BONANZA_BRIDGE_FW_VERSION` at build time to use a release version instead.
+
+Example request with command ID `0x2a`:
+
+`06 00 2a 00 00 01`
+
+Example response for version `1.2.3`:
+
+`0c 00 2a 01 01 00 05 31 2e 32 2e 33`
 
 **GPIO**
 

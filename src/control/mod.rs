@@ -8,6 +8,9 @@ use embassy_time::{Duration, TimeoutError};
 use embedded_io_async::{Read, Write};
 use heapless::Vec;
 
+pub mod system;
+const SYSTEM_COMMAND: u8 = 0;
+
 pub mod gpio;
 const GPIO_COMMAND: u8 = 6;
 
@@ -23,6 +26,7 @@ struct Command {
 
 #[derive(defmt::Format)]
 enum CommandInner {
+    System(system::Command),
     Gpio(gpio::Command),
     Fan(fan::Command),
 }
@@ -31,6 +35,11 @@ impl Command {
     fn from_bytes(buf: &[u8]) -> Result<Self, CommandError> {
         let id = buf[0];
         match buf[2] {
+            SYSTEM_COMMAND => Ok(Self {
+                id,
+                _bus: buf[1],
+                inner: CommandInner::System(system::Command::from_bytes(&buf[3..])?),
+            }),
             GPIO_COMMAND => Ok(Self {
                 id,
                 _bus: buf[1],
@@ -89,6 +98,7 @@ pub trait ControllerCommand {
 impl Controller {
     async fn handle_command(&mut self, cmd: Command) -> Vec<u8, 260> {
         let res = match cmd.inner {
+            CommandInner::System(cmd) => cmd.handle(self).await,
             CommandInner::Gpio(cmd) => cmd.handle(self).await,
             CommandInner::Fan(cmd) => cmd.handle(self).await,
         };
