@@ -42,13 +42,14 @@ impl super::ControllerCommand for Command {
         let level = match self {
             Command::Get5vEn => bool::from(controller.gpio.v5_en.get_output_level()),
             Command::Set5vEn { level } => {
-                controller.gpio.v5_en.set_level((*level).into());
-                *level
+                controller.safety_request_five_volt_enabled(*level).map_err(CommandError::from)?;
+                bool::from(controller.gpio.v5_en.get_output_level())
             }
             Command::GetAsicRst => bool::from(controller.gpio.asic_rst.get_output_level()),
             Command::SetAsicRst { level } => {
-                controller.gpio.asic_rst.set_level((*level).into());
-                *level
+                // ASIC_RST is RST_N: a low pin level means reset asserted.
+                controller.safety_request_asic_reset_asserted(!*level).map_err(CommandError::from)?;
+                bool::from(controller.gpio.asic_rst.get_output_level())
             }
             Command::GetAsicTrip => controller.gpio.asic_trip.is_high(),
         };
