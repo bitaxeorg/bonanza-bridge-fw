@@ -5,6 +5,9 @@ edition = "2021"
 license = "MIT"
 
 [dependencies]
+heapless = { version = "0.8.0", features = ["portable-atomic", "defmt-03"] }
+
+[target.'cfg(all(target_arch = "arm", target_os = "none"))'.dependencies]
 cortex-m = "0.7.7"
 cortex-m-rt = "0.7.5"
 defmt = "0.3.8"
@@ -13,16 +16,16 @@ embassy-executor = { git = "https://github.com/embassy-rs/embassy", features = [
 embassy-futures = { git = "https://github.com/embassy-rs/embassy", features = ["defmt"] }
 embassy-time = { git = "https://github.com/embassy-rs/embassy", features = ["defmt", "defmt-timestamp-uptime"] }
 embassy-rp = { git = "https://github.com/embassy-rs/embassy", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl", "rp2040"] }
+embassy-sync = { git = "https://github.com/embassy-rs/embassy", features = ["defmt"] }
 embedded-io-async = "0.6.1"
-heapless = { version = "0.8.0", features = ["portable-atomic", "defmt-03"] }
 panic-probe = { version = "0.3.2", features = ["print-defmt"] }
-portable-atomic = { version = "1.5", default-features = false, features = ["critical-section"] }
 serde = { version = "1.0.215", default-features = false, features = ["derive"] }
 static_cell = "2.1.0"
 smart-leds = "0.4.0"
 fixed = "1.29.0"
 pio = "0.2"
 pio-proc = "0.2"
+portable-atomic = { version = "1.5", default-features = false, features = ["critical-section"] }
 
 [profile.release]
 codegen-units = 1
