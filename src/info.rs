@@ -2,6 +2,8 @@ use heapless::Vec;
 
 pub const INFO_SCHEMA_VERSION: u8 = 1;
 pub const PROTOCOL_MAJOR: u8 = 1;
+/// Protocol 1.0 forwards raw ASIC RX bytes and exposes receive-loss counters
+/// through the system control page.
 pub const PROTOCOL_MINOR: u8 = 0;
 pub const VERSION_MAX_LENGTH: usize = 63;
 pub const FIRMWARE_VERSION: &str = env!("BRIDGE_FIRMWARE_VERSION");

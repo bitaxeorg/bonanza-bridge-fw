@@ -100,6 +100,7 @@ dependencies = [
  "embassy-executor",
  "embassy-futures",
  "embassy-rp",
+ "embassy-sync",
  "embassy-time",
  "embedded-io-async",
  "fixed",
@@ -423,6 +424,7 @@ source = "git+https://github.com/embassy-rs/embassy#c77560430ec781d54f3d121e1b0f
 dependencies = [
  "cfg-if",
  "critical-section",
+ "defmt",
  "embedded-io-async",
  "futures-sink",
  "futures-util",

@@ -16,6 +16,7 @@ embassy-executor = { git = "https://github.com/embassy-rs/embassy", features = [
 embassy-futures = { git = "https://github.com/embassy-rs/embassy", features = ["defmt"] }
 embassy-time = { git = "https://github.com/embassy-rs/embassy", features = ["defmt", "defmt-timestamp-uptime"] }
 embassy-rp = { git = "https://github.com/embassy-rs/embassy", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl", "rp2040"] }
+embassy-sync = { git = "https://github.com/embassy-rs/embassy", features = ["defmt"] }
 embedded-io-async = "0.6.1"
 panic-probe = { version = "0.3.2", features = ["print-defmt"] }
 serde = { version = "1.0.215", default-features = false, features = ["derive"] }

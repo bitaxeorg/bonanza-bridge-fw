@@ -18,6 +18,12 @@ cargo install elf2uf2-rs --locked
 cargo install cargo-binutils
 ```
 
+Run the host-visible policy and protocol unit tests explicitly, because the repository's default Cargo target is the RP2040:
+
+```Shell
+cargo test --lib --target x86_64-unknown-linux-gnu
+```
+
 For SWD-based development and debugging:
 
 ```Shell
@@ -55,14 +61,21 @@ The bonanza-bridge-fw firmware exposes two hardware UART interfaces to the ESP32
 | Interface | RP2040 Peripheral | RP2040 Pins | Format | Baudrate | Purpose |
 |-----------|-------------------|-------------|--------|----------|---------|
 | Control Serial | UART0 | TX: GPIO0, RX: GPIO1 | 8N1 | 115200 | Fan control and board control commands |
-| Data Serial | UART1 | TX: GPIO4, RX: GPIO5 | 8N1 | 5000000 | ESP32S3-side ASIC data stream |
+| Data Serial | UART1 | TX: GPIO4, RX: GPIO5 | 8N1 | 2000000 | ESP32S3-side BIRDS-compatible data stream |
 | ASIC Serial | PIO1 | TX: GPIO8, RX: GPIO9 | 9N1 | 5000000 | BZM2 ASIC-side data stream |
 
 ### Data Serial
 - Uses RP2040 UART1 on GPIO4/GPIO5.
 - 8N1 on the ESP32S3 side and 9N1 on the BZM2 ASIC side.
-- All data is passed through bidirectionally.
-- The firmware currently uses a fixed baudrate of 5000000 on both sides.
+- ESP-to-ASIC data is passed through as 9-bit words. ASIC-to-ESP data forwards
+  the low eight response bits as raw bytes, matching the BIRDS receive path.
+- Each direction runs in an independent async task. Paced DMA drains ASIC RX
+  continuously into a naturally aligned 1024-word memory ring, so executor,
+  interrupt, ESP command, or UART drain latency cannot stall the eight-entry
+  PIO RX FIFO.
+- The ASIC side remains fixed at 5000000 baud. The ESP link uses 2000000 baud,
+  providing more than twelve times the measured raw receive payload budget
+  while improving board-level signal margin.
 
 **ESP32-to-ASIC 9-bit Data Encoding:**
 
@@ -73,7 +86,14 @@ Data sent from the ESP32S3 to the ASIC is encoded as pairs of bytes:
 Examples:
 - To send `0x155` (binary: `1_01010101`): Send bytes `[0x55, 0x01]`
 - To send `0x0AA` (binary: `0_10101010`): Send bytes `[0xAA, 0x00]`
-- Received ASIC data is forwarded to the ESP32S3 as single bytes; the 9th bit is dropped on RX.
+- Received ASIC data forwards only bits 0 through 7 as raw bytes. The ninth bit
+  is still sampled so the receiver observes a complete 9N1 word, but it is not
+  part of the BIRDS response parser contract.
+- RX samples all nine bits at fixed eight-cycle intervals,
+  with the first sample centered 1.5 bit periods after start detection. It
+  requires the actual stop/idle level, and only then looks for the next start
+  bit. Autopush occurs after all nine bits, and software then drops bit 8 before
+  forwarding the byte to the ESP.
 
 **Note:** The 9th bit can be used for addressing or protocol-specific purposes depending on your ASIC requirements.
 
@@ -133,6 +153,7 @@ Responses are also length-prefixed:
 Commands:
 
 - get info: `0x01`
+- get RX stats: `0x02`
 
 The get-info response payload is:
 
@@ -145,13 +166,49 @@ The get-info response payload is:
 - By default, builds report `<package-version>+g<short-git-sha>`, followed by `.dirty` when built from a modified checkout.
 - Manufacturers can set `BONANZA_BRIDGE_FW_VERSION` at build time to use a release version instead.
 
+ASIC RX is drained continuously by a PIO-paced DMA channel into a 1024-word
+address ring, then the normal buffered UART task forwards bounded raw-byte
+chunks to the ESP. This is a correctness requirement at 5 Mbaud: the eight-word
+PIO RX FIFO cannot hold a complete ten-word ASIC telemetry frame while an async
+executor or interrupt-disabled critical section is busy. The ring covers more
+than 100 complete TDM frames, reports exact overwrite loss, and its transfer
+counter covers a 24-hour qualification run at the measured design rate.
+
 Example request with command ID `0x2a`:
 
 `06 00 2a 00 00 01`
 
 Example response for version `1.2.3`:
 
-`0c 00 2a 01 01 00 05 31 2e 32 2e 33`
+`0c 00 2a 01 01 03 05 31 2e 32 2e 33`
+
+The get-RX-stats response is fixed-width and little-endian:
+
+| Offset | Size | Field |
+|---:|---:|---|
+| 0 | 1 | RX stats schema, currently `1` |
+| 1 | 4 | Cumulative PIO RX FIFO overflow count |
+| 5 | 4 | Cumulative DMA software-ring overflow count |
+
+Example request with command ID `0x2a`:
+
+`06 00 2a 00 00 02`
+
+Example zero-counter response:
+
+`0c 00 2a 01 00 00 00 00 00 00 00 00`
+
+### ESP compatibility
+
+| Bridge protocol | ESP-Miner behavior |
+|---|---|
+| Missing info | Rejected before board power is enabled |
+| 1.0 or newer compatible minor | Supported; raw RX bytes plus `GET_RX_STATS` |
+| Major version other than 1 | Rejected before board power is enabled |
+
+The Bonanza MVO ESP firmware requires protocol 1.0 or newer within major
+version 1. It verifies the info schema and raw RX stats command before board
+power is enabled.
 
 **GPIO**
 

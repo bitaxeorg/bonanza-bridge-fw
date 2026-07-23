@@ -1,92 +1,67 @@
+use bonanza_bridge_fw::uart_codec::NineBitPairDecoder;
 use defmt::warn;
-
-use embassy_futures::select::{select, Either};
 use embassy_rp::{
-    peripherals::{PIO1, UART1},
-    uart::{BufferedUart, BufferedUartRx, BufferedUartTx, Error as SerialError},
+    peripherals::{DMA_CH0, PIO1, UART1},
+    uart::{BufferedUartRx, BufferedUartTx},
 };
 use embedded_io_async::{Read, Write};
 
-use crate::pio_uart::PioUart;
+use crate::pio_uart::{buffered_rx_overflows, receive_buffered_rx_chunk, PioUartRx, PioUartTx};
 
+/// Forward ESP32 UART1 byte pairs to the ASIC 9-bit TX state machine.
+///
+/// This task is deliberately independent from ASIC RX forwarding. A burst of
+/// ESP commands can therefore never prevent the PIO RX FIFO from being drained.
 #[embassy_executor::task]
-pub async fn uart_task(serial: BufferedUart<'static, UART1>, mut uart: PioUart<'static, PIO1, 0, 1>) -> ! {
-    let (mut serial_tx, mut serial_rx) = serial.split();
-
-    loop {
-        if let Err(err) = pipe_uart(&mut serial_tx, &mut serial_rx, &mut uart).await {
-            warn!("Data UART bridge error: {}", err);
-        }
-    }
-}
-
-/// Handle ESP32 UART1 <-> ASIC 9-bit UART forwarding.
-///
-/// ESP32-to-ASIC data is encoded as byte pairs on UART1:
-/// - First byte: lower 8 bits of the 9-bit word
-/// - Second byte: bit 8 (0 or 1)
-///
-/// ASIC-to-ESP32 data drops the 9th bit and is forwarded as single bytes.
-pub async fn pipe_uart(serial_tx: &mut BufferedUartTx<'static, UART1>, serial_rx: &mut BufferedUartRx<'static, UART1>, uart: &mut PioUart<'static, PIO1, 0, 1>) -> Result<(), SerialError> {
+pub async fn esp_to_asic_task(mut serial_rx: BufferedUartRx<'static, UART1>, mut uart_tx: PioUartTx<'static, PIO1, 0>) -> ! {
     let mut serial_buf = [0u8; 64];
-    let mut uart_buf = [0u8; 64];
-    let mut pending_byte: Option<u8> = None;
+    let mut words = [0u16; 32];
+    let mut decoder = NineBitPairDecoder::new();
 
     loop {
-        match select(serial_rx.read(&mut serial_buf), uart.read_u8()).await {
-            Either::First(result) => {
-                let n = result?;
-                if n == 0 {
-                    continue;
-                }
-
-                let data = &serial_buf[..n];
-                let mut i = 0;
-
-                if let Some(low_byte) = pending_byte.take() {
-                    if i < n {
-                        let bit8 = data[i] & 0x01;
-                        let word = (low_byte as u16) | ((bit8 as u16) << 8);
-                        uart.write_u16(word).await;
-                        i += 1;
-                    } else {
-                        pending_byte = Some(low_byte);
-                    }
-                }
-
-                while i + 1 < n {
-                    let low_byte = data[i];
-                    let bit8 = data[i + 1] & 0x01;
-                    let word = (low_byte as u16) | ((bit8 as u16) << 8);
-                    uart.write_u16(word).await;
-                    i += 2;
-                }
-
-                if i < n {
-                    pending_byte = Some(data[i]);
+        match serial_rx.read(&mut serial_buf).await {
+            Ok(0) => {}
+            Ok(count) => {
+                let word_count = decoder.decode(&serial_buf[..count], &mut words);
+                for word in &words[..word_count] {
+                    uart_tx.write_u16(*word).await;
                 }
             }
-            Either::Second(byte) => {
-                let mut count = 0;
-                uart_buf[count] = byte;
-                count += 1;
-
-                while count < uart_buf.len() {
-                    if let Some(byte) = uart.try_read() {
-                        uart_buf[count] = byte;
-                        count += 1;
-                    } else {
-                        break;
-                    }
-                }
-
-                write_all(serial_tx, &uart_buf[..count]).await?;
-            }
+            Err(err) => warn!("ESP data UART RX error: {}", err),
         }
     }
 }
 
-async fn write_all<W>(writer: &mut W, mut buf: &[u8]) -> Result<(), W::Error>
+/// Forward BIRDS-compatible raw ASIC RX bytes into the ESP UART TX ring. PIO
+/// still samples complete 9N1 words and requires the stop bit, but bit 8 is not
+/// part of the ASIC response protocol consumed by the ESP. DMA draining keeps
+/// scheduler or interrupt latency from filling the eight-word PIO FIFO.
+#[embassy_executor::task]
+pub async fn asic_to_esp_task(mut serial_tx: BufferedUartTx<'static, UART1>, mut asic_rx: PioUartRx<'static, PIO1, 1>, dma: DMA_CH0) -> ! {
+    // Retain both peripheral guards for the task lifetime. The state machine
+    // and channel are driven through PAC registers because Embassy's finite
+    // DMA future does not expose the RP2040's address-ring mode.
+    let _asic_rx = &mut asic_rx;
+    let _dma = dma;
+    let mut bytes = [0u8; 64];
+    let mut reported_overflows = (0u32, 0u32);
+
+    loop {
+        let count = receive_buffered_rx_chunk(&mut bytes).await;
+        let overflows = buffered_rx_overflows();
+
+        if overflows != reported_overflows {
+            warn!("ASIC RX overflow counters: PIO FIFO={}, software ring={}", overflows.0, overflows.1);
+            reported_overflows = overflows;
+        }
+
+        if let Err(err) = write_all_buffered(&mut serial_tx, &bytes[..count]).await {
+            warn!("ESP data UART TX error: {}", err);
+        }
+    }
+}
+
+async fn write_all_buffered<W>(writer: &mut W, mut buf: &[u8]) -> Result<(), W::Error>
 where
     W: Write,
 {
@@ -97,6 +72,5 @@ where
         }
         buf = &buf[written..];
     }
-
-    writer.flush().await
+    Ok(())
 }
