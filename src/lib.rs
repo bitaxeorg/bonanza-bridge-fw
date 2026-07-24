@@ -1,5 +1,6 @@
 #![no_std]
 
+pub mod image_manifest;
 pub mod info;
 pub mod rx_stats;
 pub mod safety;
