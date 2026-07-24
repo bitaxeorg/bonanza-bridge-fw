@@ -34,6 +34,11 @@ For SWD-based development and debugging:
 # Build the latest firmware:
 cargo build --release
 
+# Produce the raw image consumed by ESP-Miner's HTTP bridge updater:
+arm-none-eabi-objcopy -O binary \
+  target/thumbv6m-none-eabi/release/bonanza-bridge-fw \
+  bonanza-bridge-fw.bin
+
 # Build, program, and attach to the device with RTT for debugging:
 cargo run --release
 
@@ -171,6 +176,23 @@ The get-info response payload is:
 - The version string is printable ASCII and no more than 63 bytes.
 - By default, builds report `<package-version>+g<short-git-sha>`, followed by `.dirty` when built from a modified checkout.
 - Manufacturers can set `BONANZA_BRIDGE_FW_VERSION` at build time to use a release version instead.
+
+### Image identity manifest
+
+The RP2040 release binary embeds a fixed 96-byte BZM bridge image manifest in
+flash. ESP-Miner scans and validates this manifest before it enters maintenance
+or erases bridge flash. The manifest contains:
+
+- the `BZM-BRIDGE-FW` magic and manifest schema;
+- target board version `1002` and bridge firmware image kind;
+- the bridge protocol major and minor version;
+- the same build-derived firmware version returned by `GET_INFO`; and
+- a CRC-32 covering the complete manifest.
+
+ESP-Miner compares the manifest protocol and version with the running bridge
+after programming and reset. The magic and CRC prevent accidental uploads of
+unrelated or damaged RP2040 images; they are not a cryptographic signature
+against a maliciously constructed image.
 
 ASIC RX is drained continuously by a PIO-paced DMA channel into a 1024-word
 address ring, then the normal buffered UART task forwards bounded raw-byte

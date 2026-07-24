@@ -19,6 +19,7 @@ use embassy_rp::{
 use embassy_time::Duration;
 use static_cell::StaticCell;
 
+use bonanza_bridge_fw::image_manifest;
 use bonanza_bridge_fw::safety_timing::WATCHDOG_TIMEOUT_MS;
 
 mod control;
@@ -29,6 +30,13 @@ const CONTROL_BAUDRATE: u32 = 115_200;
 const ESP_DATA_BAUDRATE: u32 = 2_000_000;
 const ASIC_DATA_BAUDRATE: u32 = 5_000_000;
 
+#[repr(C, align(4))]
+struct AlignedImageManifest([u8; image_manifest::MANIFEST_SIZE]);
+
+#[used]
+#[link_section = ".rodata.bzm_bridge_manifest"]
+static BRIDGE_IMAGE_MANIFEST: AlignedImageManifest = AlignedImageManifest(image_manifest::IMAGE_MANIFEST);
+
 bind_interrupts!(struct Irqs {
     UART0_IRQ => rp_uart::BufferedInterruptHandler<UART0>;
     UART1_IRQ => rp_uart::BufferedInterruptHandler<UART1>;
@@ -37,6 +45,7 @@ bind_interrupts!(struct Irqs {
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
+    core::hint::black_box(&BRIDGE_IMAGE_MANIFEST);
     let p = embassy_rp::init(Default::default());
 
     // PIO IRQ remains highest priority for command TX futures. ASIC RX uses a
