@@ -12,13 +12,6 @@ pub const ASIC_RX_DESIGN_WORDS_PER_SECOND: u32 = 16_000;
 pub const ESP_DATA_BAUD_RATE: u32 = 2_000_000;
 pub const QUALIFICATION_SOAK_SECONDS: u32 = 24 * 60 * 60;
 
-/// ASIC output is meaningful only while its I/O rail is enabled and reset is
-/// released. Keeping the PIO state machine active in any other state can turn
-/// an unpowered low RX line into an endless stream of synthetic zero bytes.
-pub const fn asic_rx_forwarding_allowed(five_volt_enabled: bool, asic_reset_asserted: bool) -> bool {
-    five_volt_enabled && !asic_reset_asserted
-}
-
 /// Whether a complete ASIC response can be buffered without software draining
 /// the PIO FIFO while the frame is arriving.
 pub const fn rx_fifo_holds_complete_frame(frame_bytes: usize) -> bool {
@@ -122,13 +115,5 @@ mod tests {
     #[test]
     fn dma_transfer_counter_covers_the_full_qualification_soak() {
         assert!((ASIC_RX_DESIGN_WORDS_PER_SECOND as u64) * (QUALIFICATION_SOAK_SECONDS as u64) < ASIC_RX_DMA_TRANSFER_COUNT as u64);
-    }
-
-    #[test]
-    fn asic_rx_is_gated_by_io_power_and_reset() {
-        assert!(!asic_rx_forwarding_allowed(false, true));
-        assert!(!asic_rx_forwarding_allowed(false, false));
-        assert!(!asic_rx_forwarding_allowed(true, true));
-        assert!(asic_rx_forwarding_allowed(true, false));
     }
 }

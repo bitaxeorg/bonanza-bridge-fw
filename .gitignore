@@ -1,4 +1,5 @@
 target/
+build/
 espup
 firmware.uf2
 bonanza-bridge-fw.uf2

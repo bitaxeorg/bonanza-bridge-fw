@@ -62,12 +62,9 @@ fn start_buffered_rx_dma() {
     compiler_fence(CompilerOrdering::SeqCst);
 }
 
-/// Gate the ASIC RX state machine with the effective bridge safety outputs.
-///
-/// Disabling happens before safe GPIOs are applied. Enabling starts from an
-/// empty hardware FIFO and the PIO program's wait-for-start instruction after
-/// 5 V is present and reset has been released. DMA is synchronously aborted on
-/// safe-off, so bytes from separate powered sessions cannot share a ring.
+/// Start/stop the UART receiver and its DMA ring. On 1004x this is enabled at
+/// boot; the RP2040 has no reset/5 V signals from which to derive a power gate.
+/// Disabling still synchronously aborts DMA and resets framing/accounting.
 pub fn set_buffered_rx_forwarding_enabled(enabled: bool) {
     let pio = &pac::PIO1;
     let mask = 1u8 << ASIC_RX_SM;
@@ -98,7 +95,7 @@ pub fn set_buffered_rx_forwarding_enabled(enabled: bool) {
             w.set_clkdiv_restart(w.clkdiv_restart() | mask);
         });
         // Arm DMA before the state machine so even the first start bit after a
-        // safety transition is drained without an executor scheduling window.
+        // receiver restart is drained without an executor scheduling window.
         start_buffered_rx_dma();
         ASIC_RX_ENABLED.store(true, Ordering::Release);
         pio.ctrl().modify(|w| w.set_sm_enable(w.sm_enable() | mask));
@@ -117,8 +114,8 @@ pub async fn receive_buffered_rx_chunk(output: &mut [u8]) -> usize {
         if !channel.ctrl_trig().read().busy() {
             // A stopped channel has TRANS_COUNT == 0. Treating that as a
             // producer snapshot would manufacture roughly two billion words
-            // and keep this task permanently Ready, starving control and
-            // safety servicing. Re-arm from a clean ring instead.
+            // and keep this task permanently Ready, starving diagnostics and
+            // watchdog servicing. Re-arm from a clean ring instead.
             ASIC_RX_DMA_CONSUMED.store(0, Ordering::Relaxed);
             ASIC_RX_DMA_GENERATION.fetch_add(1, Ordering::AcqRel);
             start_buffered_rx_dma();
@@ -142,9 +139,9 @@ pub async fn receive_buffered_rx_chunk(output: &mut [u8]) -> usize {
                 *word = asic_rx_word_to_u8(raw);
             }
 
-            // A power-gate transition resets both DMA and its accounting. Drop
-            // the snapshot if it raced this copy instead of publishing words
-            // from two powered sessions as one stream.
+            // A receiver restart resets both DMA and its accounting. Drop the
+            // snapshot if it raced this copy instead of mixing generations
+            // from separate receive sessions.
             if generation == ASIC_RX_DMA_GENERATION.load(Ordering::Acquire) && ASIC_RX_ENABLED.load(Ordering::Acquire) {
                 ASIC_RX_DMA_CONSUMED.store(consumed.wrapping_add(count as u32), Ordering::Release);
                 return count;
@@ -196,6 +193,7 @@ impl<'d, PIO: Instance, const SM_TX: usize, const SM_RX: usize> PioUart<'d, PIO,
         // second half of bit 8 as the next start bit.
         let prg_rx = pio_proc::pio_asm!(
             ".wrap_target"
+            "wait 1 pin 0",          // Require idle before initial/start framing
             "wait 0 pin 0",          // Wait for start bit (falling edge)
             // WAIT consumes one PIO cycle after observing the start edge.
             // Eleven SET cycles put the first IN exactly 12 cycles (1.5 bit

@@ -8,19 +8,15 @@ use panic_probe as _;
 use embassy_executor::Spawner;
 use embassy_rp::interrupt::{InterruptExt, Priority};
 use embassy_rp::{
-    bind_interrupts,
-    gpio::{self},
-    interrupt,
+    bind_interrupts, interrupt,
     peripherals::{PIO1, UART0, UART1},
     pio::{self},
-    pwm::{self},
     uart as rp_uart,
 };
-use embassy_time::Duration;
+use embassy_time::{Duration, Timer};
 use static_cell::StaticCell;
 
 use bonanza_bridge_fw::image_manifest;
-use bonanza_bridge_fw::safety_timing::WATCHDOG_TIMEOUT_MS;
 
 mod control;
 mod pio_uart;
@@ -56,23 +52,7 @@ async fn main(spawner: Spawner) {
 
     let mut watchdog = embassy_rp::watchdog::Watchdog::new(p.WATCHDOG);
     watchdog.set_scratch(0, 0);
-    watchdog.start(Duration::from_millis(WATCHDOG_TIMEOUT_MS));
-
-    let gpio_pins = control::gpio::Pins {
-        v5_en: gpio::Output::new(p.PIN_18, gpio::Level::Low),
-        // ASIC_RST is RST_N, so LOW is the semantic asserted/safe level.
-        asic_rst: gpio::Output::new(p.PIN_11, gpio::Level::Low),
-        asic_trip: gpio::Input::new(p.PIN_10, gpio::Pull::None),
-    };
-
-    let fan_pins = {
-        let pwm_config = control::fan::pwm_config_for_percent(100);
-
-        let pwm = pwm::Pwm::new_output_a(p.PWM_SLICE2, p.PIN_20, pwm_config.clone());
-
-        let tach = gpio::Input::new(p.PIN_21, gpio::Pull::None);
-        control::fan::Pins { pwm, tach }
-    };
+    watchdog.start(Duration::from_secs(3));
 
     let control_uart = {
         static TX_BUF: StaticCell<[u8; 256]> = StaticCell::new();
@@ -99,9 +79,15 @@ async fn main(spawner: Spawner) {
     let (data_uart_tx, data_uart_rx) = data_uart.split();
     let (asic_uart_tx, asic_uart_rx) = asic_uart.split();
 
-    unwrap!(spawner.spawn(control::uart_task(control_uart, gpio_pins, fan_pins, watchdog)));
+    unwrap!(spawner.spawn(control::uart_task(control_uart)));
     unwrap!(spawner.spawn(uart::esp_to_asic_task(data_uart_rx, asic_uart_tx)));
     unwrap!(spawner.spawn(uart::asic_to_esp_task(data_uart_tx, asic_uart_rx, p.DMA_CH0)));
 
-    core::future::pending::<()>().await;
+    // The bridge owns only UART pins. The ESP32 independently controls board
+    // power, reset, fan and trip handling. No legacy RP2040 lease is required.
+    pio_uart::set_buffered_rx_forwarding_enabled(true);
+    loop {
+        watchdog.feed();
+        Timer::after_secs(1).await;
+    }
 }
